@@ -115,7 +115,11 @@ async function startBot() {
       if (aiService.initialized) {
         console.log('✅ AI service initialized');
       } else {
-        console.log('⚠️ AI service not initialized - set ZAI_BASE_URL and ZAI_API_KEY env vars for AI features');
+        console.log('⚠️ AI service NOT initialized - AI features will not work');
+        console.log('⚠️ To enable AI, set these env vars:');
+        console.log('⚠️   AI_PROVIDER=groq (or openai, openrouter, together)');
+        console.log('⚠️   AI_API_KEY=your_api_key');
+        console.log('⚠️ Get free Groq API key at: https://console.groq.com/keys');
       }
     } catch (aiErr) {
       console.log('⚠️ AI service init failed:', aiErr.message);
