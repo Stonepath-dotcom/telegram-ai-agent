@@ -5,6 +5,7 @@ import memoryService from '../services/memory.service.js';
 import premiumService from '../services/premium.service.js';
 import voiceService from '../services/voice.service.js';
 import webSearchService from '../services/web-search.service.js';
+import sandboxService from '../services/sandbox.service.js';
 import { splitMessage } from '../utils/formatter.js';
 import {
   mainMenuKeyboard,
@@ -83,6 +84,10 @@ export function handleHelp(ctx) {
 🌐 \`/search <query>\` — Web search real-time
 🎤 \`/voice\` — Voice input (kirim voice note)
 🔊 \`/tts <teks>\` — Text-to-speech
+
+*Agent & Tools:*
+💻 \`/run <lang> <code>\` — Eksekusi kode di sandbox (Piston, 30+ bahasa)
+🤖 \`/ask <pertanyaan>\` — AI agent otonom (auto pakai run_code & web_search)
 
 *Memory & Stats:*
 🧠 \`/memory\` — Lihat & kelola memori bot
@@ -791,6 +796,146 @@ export async function handleAiStatus(ctx) {
     } catch (mdErr) {
       return ctx.reply(`❌ Gagal cek status AI.\n\nError: ${String(error.message || error).substring(0, 300)}`, backHomeKeyboard());
     }
+  }
+}
+
+// ============================================
+// /run — execute code in Piston sandbox (no API key, free)
+// Usage:
+//   /run python
+//   print("hello")
+//   ^D
+// OR:
+//   /run python print(1+1)
+// OR:
+//   Reply /run to a code message
+// ============================================
+
+export async function handleRun(ctx) {
+  const userId = ctx.from?.id;
+  const args = ctx.message?.text?.replace(/^\/run\s*/i, '').trim();
+  const reply = ctx.message?.reply_to_message;
+
+  try {
+    // Check premium quota (sandbox is a premium-tier feature for safety)
+    const quota = premiumService.check(userId, 'sandbox');
+    if (!quota.ok) {
+      return ctx.replyWithMarkdown(
+        `⚠️ *Kuota sandbox harian habis.* (${quota.used}/${quota.limit})\n\n` +
+        `Upgrade ke premium untuk eksekusi tanpa batas.`,
+        backHomeKeyboard()
+      );
+    }
+
+    // Determine source of code
+    let code = '';
+    let language = '';
+
+    if (reply && reply.text) {
+      // Reply to a code message
+      code = reply.text;
+      language = args || '';
+    } else if (args) {
+      // Inline: /run python <code...>
+      // First word = language, rest = code
+      const firstSpace = args.indexOf('\n') >= 0 ? args.indexOf('\n') : args.indexOf(' ');
+      if (firstSpace > 0) {
+        language = args.substring(0, firstSpace).trim();
+        code = args.substring(firstSpace + 1).trim();
+      } else {
+        // Single token — treat as language with no code, show help
+        language = args;
+      }
+    }
+
+    if (!code) {
+      const help =
+        `💻 *Cara pakai /run:*\n\n` +
+        `*Format 1 — Inline:*\n` +
+        `\`/run python\nprint("hello")\`\n\n` +
+        `*Format 2 — Reply ke pesan kode:*\n` +
+        `Reply pesan berisi kode lalu ketik \`/run js\`\n\n` +
+        `*Bahasa yang didukung:*\n` +
+        `\`python\`, \`javascript\`, \`typescript\`, \`go\`, \`rust\`, \`c\`, \`c++\`, \`java\`, \`ruby\`, \`php\`, \`bash\`, \`lua\`, \`perl\`, \`haskell\`, \`swift\`, \`kotlin\`, \`sql\`\n\n` +
+        `*Contoh:*\n` +
+        `\`/run python\nfor i in range(5):\n    print(f"i={i}")\``;
+      return ctx.replyWithMarkdown(help, backHomeKeyboard());
+    }
+
+    await ctx.replyWithMarkdown(`⏳ *Menjalankan kode...* \`${language || 'auto-detect'}\``);
+
+    const result = await sandboxService.runCode(code, { language: language || undefined });
+
+    // Increment usage (only if call succeeded in reaching sandbox)
+    premiumService.incrementUsage(userId, 'sandbox');
+
+    if (!result.ok && result.error && result.error.includes('Bahasa tidak dikenali')) {
+      return ctx.replyWithMarkdown(
+        `❌ *${result.error}*\n\n${sandboxService.getSupportedLanguagesList()}`,
+        backHomeKeyboard()
+      );
+    }
+
+    const formatted = sandboxService.formatResult(result);
+    return ctx.replyWithMarkdown(formatted, backHomeKeyboard());
+  } catch (error) {
+    console.error('Run command error:', error);
+    return _handleCmdError(ctx, error, 'run code');
+  }
+}
+
+// ============================================
+// /ask — premium chat with autonomous tool calling (run_code + web_search)
+// The AI decides on its own whether to execute code or search the web.
+// ============================================
+
+export async function handleAsk(ctx) {
+  const userId = ctx.from?.id;
+  const question = ctx.message?.text?.replace(/^\/ask\s*/i, '').trim();
+
+  if (!question) {
+    return ctx.replyWithMarkdown(
+      `🤖 *Cara pakai /ask:*\n\n` +
+      `\`/ask hitung fibonacci ke-20 pakai python\`\n` +
+      `\`/ask berapa harga Bitcoin sekarang?\`\n` +
+      `\`/ask buat function JS untuk cek palindrome lalu test\`\n\n` +
+      `_AI akan otomatis panggil tools (run_code, web_search) sesuai kebutuhan._`,
+      backHomeKeyboard()
+    );
+  }
+
+  try {
+    // Premium-only feature
+    const quota = premiumService.check(userId, 'tool_chat');
+    if (!quota.ok) {
+      return ctx.replyWithMarkdown(
+        `⚠️ *Kuota /ask harian habis.* (${quota.used}/${quota.limit})\n\n` +
+        `Upgrade ke premium untuk pakai AI agent dengan tools tanpa batas.`,
+        backHomeKeyboard()
+      );
+    }
+
+    await ctx.replyWithMarkdown('🤔 *Berpikir... mungkin manggil tools*');
+
+    const history = historyService.getHistory(userId);
+    const { content, toolHistory } = await aiService.chatWithTools(question, history, 'normal');
+    historyService.addMessage(userId, 'user', question);
+    historyService.addMessage(userId, 'assistant', content);
+    premiumService.incrementUsage(userId, 'tool_chat');
+
+    // If tools were called, prepend a small badge
+    let finalText = content;
+    if (toolHistory && toolHistory.length > 0) {
+      const toolBadges = toolHistory
+        .map(t => t.name === 'run_code' ? `💻 run_code(${t.args.language || 'auto'})` : `🔍 web_search("${t.args.query || ''}")`)
+        .join('  •  ');
+      finalText = `_Tools dipakai: ${toolBadges}_\n\n${content}`;
+    }
+
+    return _sendLong(ctx, finalText, 'normal');
+  } catch (error) {
+    console.error('Ask command error:', error);
+    return _handleCmdError(ctx, error, 'ask with tools');
   }
 }
 

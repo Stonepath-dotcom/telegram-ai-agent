@@ -54,6 +54,10 @@ export function mainMenuKeyboard(isPremium = false) {
       Markup.button.callback('🌐 Web Search',     'quick_search'),
     ],
     [
+      Markup.button.callback('💻 Run Kode',        'quick_run'),
+      Markup.button.callback('🤖 Ask + Tools',     'quick_ask'),
+    ],
+    [
       Markup.button.callback('🎤 Voice Input',     'quick_voice_help'),
       Markup.button.callback('📊 Statistik',       'show_stats'),
     ],

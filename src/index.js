@@ -23,6 +23,8 @@ import {
   handleImage,
   handleVoice,
   handleTTS,
+  handleRun,
+  handleAsk,
 } from './commands/index.js';
 import { handleMessage, handleDocument, handlePhoto, handleVoice as handleVoiceMessage } from './handlers/message.handler.js';
 import { handleCallbackQuery, handleInlineQuery } from './handlers/callback.handler.js';
@@ -111,6 +113,8 @@ bot.command('image', handleImage);
 bot.command('voice', handleVoice);
 bot.command('tts', handleTTS);
 bot.command('aistatus', handleAiStatus);
+bot.command('run', handleRun);
+bot.command('ask', handleAsk);
 
 // ============================================
 // MESSAGE HANDLERS (ordered: photo, voice, document, text)
@@ -193,6 +197,8 @@ async function startBot() {
         { command: 'mystats', description: '📊 Statistik penggunaan' },
         { command: 'clear', description: '🗑️ Hapus riwayat chat' },
         { command: 'aistatus', description: '🔍 Cek konfigurasi AI' },
+        { command: 'run', description: '💻 Jalankan kode di sandbox (30+ bahasa)' },
+        { command: 'ask', description: '🤖 AI agent dengan tools (auto run_code + web_search)' },
       ]);
       console.log('✦  Bot commands registered with Telegram');
     } catch (cmdErr) {
@@ -255,6 +261,8 @@ async function startBot() {
     console.log('   /mystats  — Usage statistics');
     console.log('   /clear    — Clear history');
     console.log('   /aistatus — AI diagnostics');
+    console.log('   /run      — Execute code in sandbox (30+ languages)');
+    console.log('   /ask      — AI agent with autonomous tool calling');
     console.log('');
     console.log('◆ Media handlers: photo, voice, document (auto-detected)');
     console.log('◆ Inline mode: @' + botInfo.username + ' <query>');

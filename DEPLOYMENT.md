@@ -1,4 +1,4 @@
-# 🚀 Deployment Guide — Glo Agent v3
+# 🚀 Deployment Guide — Glo Agent v3.1
 
 Bot Telegram butuh proses yang jalan **24/7**. Berikut platform gratis yang cocok:
 
@@ -15,6 +15,13 @@ Bot Telegram butuh proses yang jalan **24/7**. Berikut platform gratis yang coco
 - 🧭 **Multi-model Routing** — query simple → fast model, complex → primary model
 - 💎 **Premium Tier** — gating free vs unlimited (via `PREMIUM_USER_IDS`)
 - 🔍 **Inline Mode** — `@bot query` dari chat mana saja
+
+## 🔥 Apa Baru di v3.1
+
+- 💻 **Code Sandbox** — `/run <lang> <code>` eksekusi kode di Judge0 CE (free, 30+ bahasa: Python, JS, Go, Rust, C/C++, Java, Ruby, PHP, Bash, SQL, dll)
+- 🤖 **Autonomous Tool Calling** — `/ask <pertanyaan>` AI otomatis panggil `run_code` atau `web_search` sesuai kebutuhan, lalu kasih jawaban final
+- 🎯 **Natural Language Code Run** — ketik "run kode ini: ```python...```" langsung dieksekusi
+- 📊 **Enhanced Quota Tracking** — sandbox & tool-chat punya quota sendiri (10 & 15/hari free)
 
 ---
 
@@ -159,6 +166,13 @@ Kalau mau pakai Vercel, harus rewrite jadi webhook mode + external database (Red
 |----------|-------------|
 | `TAVILY_API_KEY` | Jika set, pakai Tavily (1000 req/month free) |
 | `SERPER_API_KEY` | Jika set, pakai Serper.dev (2500 req free trial) |
+
+### Opsional — Code Sandbox (v3.1)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SANDBOX_BACKEND` | `judge0` | Backend: `judge0` (default, free) / `wandbox` (fallback) / `piston` (self-host) |
+| `SANDBOX_API_URL` | `https://ce.judge0.com` | Override if self-hosting Judge0 |
+| `SANDBOX_TIMEOUT` | `10000` | Max execution time per run (ms, capped 30000) |
 
 ### Opsional — Tuning
 | Variable | Default | Description |

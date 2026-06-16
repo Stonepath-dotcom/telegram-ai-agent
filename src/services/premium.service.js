@@ -35,6 +35,8 @@ const FREE_LIMITS = {
   searchPerDay: 10,
   voiceASRPerDay: 5,
   voiceTTSPerDay: 0,  // disabled for free
+  sandboxPerDay: 10,        // /run code execution
+  toolChatPerDay: 15,       // /ask with autonomous tool calling
 };
 
 class PremiumService {
@@ -132,6 +134,39 @@ class PremiumService {
     return { used, limit, remaining: Math.max(0, limit - used), premium: false };
   }
 
+  /**
+   * Alias for peekUsage — returns { ok, used, limit } for compat with command handlers.
+   * Does NOT increment.
+   */
+  check(userId, feature) {
+    const peek = this.peekUsage(userId, feature);
+    if (peek.limit === Infinity) {
+      return { ok: true, used: 0, limit: Infinity, premium: peek.premium };
+    }
+    if (peek.limit === 0) {
+      return { ok: false, used: peek.used, limit: 0, premium: false };
+    }
+    return {
+      ok: peek.used < peek.limit,
+      used: peek.used,
+      limit: peek.limit,
+      premium: peek.premium,
+    };
+  }
+
+  /**
+   * Increment usage counter for a feature. Used after a successful operation.
+   * No-op for premium users.
+   */
+  incrementUsage(userId, feature) {
+    if (this.isPremium(userId)) return;
+    const limit = FREE_LIMITS[`${feature}PerDay`];
+    if (limit === undefined || limit === 0) return;
+    const key = this._getUserDay(userId, feature);
+    this.usage[key] = (this.usage[key] || 0) + 1;
+    this._persist();
+  }
+
   getStats(userId) {
     return {
       premium: this.isPremium(userId),
@@ -140,6 +175,8 @@ class PremiumService {
       search: this.peekUsage(userId, 'search'),
       voiceASR: this.peekUsage(userId, 'voiceASR'),
       voiceTTS: this.peekUsage(userId, 'voiceTTS'),
+      sandbox: this.peekUsage(userId, 'sandbox'),
+      toolChat: this.peekUsage(userId, 'toolChat'),
     };
   }
 
@@ -150,11 +187,13 @@ class PremiumService {
     }
     const fmt = (n) => n === Infinity ? '∞' : String(n);
     return `🆓 *Free Tier*\n\n` +
-      `💬 Messages  : ${fmt(s.messages.used)}/${fmt(s.messages.limit)}\n` +
-      `👁️ Vision    : ${fmt(s.vision.used)}/${fmt(s.vision.limit)}\n` +
-      `🔍 Search    : ${fmt(s.search.used)}/${fmt(s.search.limit)}\n` +
-      `🎤 Voice ASR : ${fmt(s.voiceASR.used)}/${fmt(s.voiceASR.limit)}\n` +
-      `🔊 Voice TTS : ${fmt(s.voiceTTS.used)}/${fmt(s.voiceTTS.limit)}\n\n` +
+      `💬 Messages   : ${fmt(s.messages.used)}/${fmt(s.messages.limit)}\n` +
+      `👁️ Vision     : ${fmt(s.vision.used)}/${fmt(s.vision.limit)}\n` +
+      `🔍 Search     : ${fmt(s.search.used)}/${fmt(s.search.limit)}\n` +
+      `🎤 Voice ASR  : ${fmt(s.voiceASR.used)}/${fmt(s.voiceASR.limit)}\n` +
+      `🔊 Voice TTS  : ${fmt(s.voiceTTS.used)}/${fmt(s.voiceTTS.limit)}\n` +
+      `💻 Sandbox    : ${fmt(s.sandbox.used)}/${fmt(s.sandbox.limit)}\n` +
+      `🤖 Tool Chat  : ${fmt(s.toolChat.used)}/${fmt(s.toolChat.limit)}\n\n` +
       `_Upgrade ke Premium untuk akses unlimited_`;
   }
 }

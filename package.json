@@ -1,7 +1,7 @@
 {
   "name": "glo-agent",
-  "version": "3.0.0",
-  "description": "Glo Agent v3 — Premium Telegram AI Coding Assistant with vision, voice, web search, memory, streaming, and premium tier",
+  "version": "3.1.0",
+  "description": "Glo Agent v3.1 — Premium Telegram AI Agent with vision, voice, web search, memory, streaming, code sandbox, autonomous tool calling, and premium tier",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

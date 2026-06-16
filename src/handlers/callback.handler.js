@@ -136,6 +136,42 @@ export async function handleCallbackQuery(ctx) {
       return;
     }
 
+    if (data === 'quick_run') {
+      await ctx.answerCbQuery('');
+      await ctx.editMessageText(
+        '💻 *Run Kode di Sandbox*\n\n' +
+        'Jalankan kode langsung di sandbox Judge0 CE (free, 30+ bahasa).\n\n' +
+        '*Cara pakai:*\n' +
+        '• `/run python\\nprint("hello")`\n' +
+        '• `/run js console.log(1+1)`\n' +
+        '• Reply pesan kode lalu ketik `/run python`\n\n' +
+        '*Atau natural language:*\n' +
+        '• `run kode ini:` (lalu paste kode di code block)\n' +
+        '• `test kode\\n```python\\nprint(42)\\n```\n\n' +
+        '*Bahasa: * `python` `javascript` `typescript` `go` `rust` `c` `c++` `java` `ruby` `php` `bash` `sql`',
+        { parse_mode: 'Markdown', ...backHomeKeyboard() }
+      );
+      return;
+    }
+
+    if (data === 'quick_ask') {
+      await ctx.answerCbQuery('');
+      await ctx.editMessageText(
+        '🤖 *Ask dengan Tools Otonom*\n\n' +
+        'AI agent yang bisa *otomatis* panggil tools:\n' +
+        '• 💻 `run_code` — eksekusi kode di sandbox\n' +
+        '• 🔍 `web_search` — cari info real-time di web\n\n' +
+        '*Contoh:*\n' +
+        '• `/ask hitung fibonacci ke-30 pakai python`\n' +
+        '• `/ask berapa harga Bitcoin sekarang?`\n' +
+        '• `/ask buat function JS cek palindrome, lalu test`\n' +
+        '• `/ask berapa populasi Indonesia tahun 2024?`\n\n' +
+        'AI akan *memilih sendiri* tool mana yang dipakai, eksekusi, lalu kasih jawaban final.',
+        { parse_mode: 'Markdown', ...backHomeKeyboard() }
+      );
+      return;
+    }
+
     if (data === 'quick_voice_help') {
       await ctx.answerCbQuery('');
       const available = voiceService.isASRAvailable();

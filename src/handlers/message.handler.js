@@ -6,6 +6,7 @@ import premiumService from '../services/premium.service.js';
 import fileService from '../services/file.service.js';
 import voiceService from '../services/voice.service.js';
 import webSearchService from '../services/web-search.service.js';
+import sandboxService from '../services/sandbox.service.js';
 import { splitMessage } from '../utils/formatter.js';
 import { afterResponseKeyboard } from '../utils/keyboards.js';
 
@@ -59,6 +60,14 @@ export async function handleMessage(ctx) {
   if (searchTrigger) {
     const query = searchTrigger[2] || searchTrigger[3] || text;
     return _handleSearch(ctx, userId, query);
+  }
+
+  // Auto-detect "run this code" / "test code ini" trigger
+  // Phrases: "jalankan kode ini", "run this", "eksekusi ...", "coba run", "test kode", "execute ..."
+  // Must contain a code block (```...```) OR be a reply to a code-looking message.
+  const runTrigger = /^(?:jalankan|run|eksekusi|coba\s+run|test\s+kode|execute|coba\s+kode)\b/i.test(text);
+  if (runTrigger && detectCode(text)) {
+    return _handleRunInline(ctx, userId, text);
   }
 
   await ctx.replyWithChatAction('typing');
@@ -321,6 +330,61 @@ async function _handleSearch(ctx, userId, query) {
     );
   } catch (error) {
     console.error('Search handler error:', error);
+    await _handleError(ctx, error);
+  }
+}
+
+/**
+ * Extract code from message text and execute it in sandbox.
+ * Looks for ```lang\n...code...``` blocks. If found, runs the first block.
+ * Otherwise, treats the entire message after the trigger word as code.
+ */
+async function _handleRunInline(ctx, userId, text) {
+  const quota = premiumService.check(userId, 'sandbox');
+  if (!quota.ok) {
+    return ctx.replyWithMarkdown(
+      `🆓 *Kuota sandbox harian habis* (${quota.used}/${quota.limit}).\n\n` +
+      `💎 Upgrade Premium untuk unlimited.`
+    );
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Extract first ```lang\n...``` code block
+    const codeBlockMatch = text.match(/```(\w+)?\n([\s\S]+?)```/);
+    let code = '';
+    let language = '';
+
+    if (codeBlockMatch) {
+      language = codeBlockMatch[1] || '';
+      code = codeBlockMatch[2];
+    } else {
+      // No fenced block — strip trigger word and use rest as code
+      const stripped = text.replace(/^(?:jalankan|run|eksekusi|coba\s+run|test\s+kode|execute|coba\s+kode)\s*/i, '');
+      // First token might be language
+      const m = stripped.match(/^(\w+)\s+([\s\S]+)$/);
+      if (m && m[1].length <= 12) {
+        language = m[1];
+        code = m[2];
+      } else {
+        code = stripped;
+      }
+    }
+
+    if (!code || !code.trim()) {
+      return ctx.replyWithMarkdown('⚠️ Tidak ada kode yang ditemukan untuk dijalankan.');
+    }
+
+    await ctx.replyWithMarkdown(`⏳ *Menjalankan kode...* \`${language || 'auto-detect'}\``);
+
+    const result = await sandboxService.runCode(code, { language: language || undefined });
+    premiumService.incrementUsage(userId, 'sandbox');
+
+    const formatted = sandboxService.formatResult(result);
+    await ctx.replyWithMarkdown(formatted, afterResponseKeyboard('normal'));
+  } catch (error) {
+    console.error('Inline run handler error:', error);
     await _handleError(ctx, error);
   }
 }

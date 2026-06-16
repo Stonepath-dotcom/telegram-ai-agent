@@ -17,6 +17,46 @@
  */
 
 import config from '../../config/default.js';
+import sandboxService from './sandbox.service.js';
+import webSearchService from './web-search.service.js';
+
+// Tool definitions exposed to the AI when running chatWithTools()
+const TOOL_DEFINITIONS = [
+  {
+    type: 'function',
+    function: {
+      name: 'run_code',
+      description: 'Execute code in a sandbox (Piston API, 30+ languages). Use when user asks to run, test, or execute code. Returns stdout, stderr, and exit code.',
+      parameters: {
+        type: 'object',
+        properties: {
+          language: {
+            type: 'string',
+            description: 'Programming language: python, javascript, typescript, go, rust, c, c++, java, ruby, php, bash, etc.',
+            enum: ['python', 'javascript', 'typescript', 'go', 'rust', 'c', 'c++', 'java', 'ruby', 'php', 'bash', 'lua', 'perl', 'haskell', 'swift', 'kotlin', 'sql'],
+          },
+          code: { type: 'string', description: 'The source code to execute' },
+          stdin: { type: 'string', description: 'Optional stdin input for the program' },
+        },
+        required: ['language', 'code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the web for real-time information (DuckDuckGo, free). Use for news, prices, current events, latest docs, or anything not in training data.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+];
 
 // Provider presets — each provider has primary + fallback + vision + fast models
 const PROVIDER_PRESETS = {
@@ -678,6 +718,128 @@ ${this._commonOutputRules()}`;
     } catch (error) {
       console.error('AI Chat Error:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Chat with tool calling — AI can autonomously call run_code or web_search.
+   * Loops up to 3 tool-call rounds, then returns final answer.
+   *
+   * Flow:
+   * 1. Send messages + tools to AI
+   * 2. If AI returns tool_calls, execute them and append tool results
+   * 3. Re-send messages; AI produces final answer
+   *
+   * @returns {Promise<{content: string, toolHistory: Array}>}
+   */
+  async chatWithTools(userMessage, history = [], mode = 'normal') {
+    await this.ensureInitialized();
+
+    // Z.ai / together don't support tools — fallback to plain chat
+    const preset = PROVIDER_PRESETS[this.provider];
+    if (this.provider === 'zai' || !preset?.supportsTools) {
+      const content = await this.chat(userMessage, history, mode);
+      return { content, toolHistory: [] };
+    }
+
+    const systemPrompt = this._getSystemPrompt(mode) +
+      '\n\nYou have access to tools: `run_code` (execute code in sandbox) and `web_search` (search the web). ' +
+      'Use them automatically when the user asks to run code, test something, or asks about current/recent information. ' +
+      'After tool results come back, summarize them in friendly Indonesian for the user.';
+    const messages = this._buildMessages(systemPrompt, history, userMessage);
+    const toolHistory = [];
+
+    let rounds = 0;
+    const MAX_ROUNDS = 4;
+
+    while (rounds < MAX_ROUNDS) {
+      rounds++;
+      const result = await this._callOpenAICompatible(messages, {
+        _userMessage: userMessage,
+        tools: TOOL_DEFINITIONS,
+        tool_choice: 'auto',
+      });
+
+      // No tool calls — final answer
+      if (typeof result === 'string') {
+        return { content: result, toolHistory };
+      }
+
+      // Tool calls — execute each, append results, loop
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        // Append assistant message containing tool_calls
+        messages.push({
+          role: 'assistant',
+          content: result.content || '',
+          tool_calls: result.toolCalls,
+        });
+
+        for (const call of result.toolCalls) {
+          const toolName = call.function?.name;
+          let args = {};
+          try { args = JSON.parse(call.function?.arguments || '{}'); } catch (e) { /* keep empty */ }
+
+          console.log(`🔧 [tool] AI called: ${toolName}(${JSON.stringify(args).substring(0, 100)})`);
+          const toolResult = await this._executeTool(toolName, args);
+          toolHistory.push({ name: toolName, args, result: toolResult });
+
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify(toolResult).substring(0, 4000),
+          });
+        }
+        // continue loop — AI will get tool results and respond
+        continue;
+      }
+
+      return { content: result.content || 'Tidak ada respons.', toolHistory };
+    }
+
+    // Fallback after MAX_ROUNDS
+    return {
+      content: '⚠️ Maximum tool-call rounds reached. Coba sederhanakan pertanyaan Anda.',
+      toolHistory,
+    };
+  }
+
+  /**
+   * Execute a tool call by name. Returns a result object.
+   * @param {string} name - tool name
+   * @param {Object} args - tool arguments
+   * @returns {Promise<Object>}
+   */
+  async _executeTool(name, args) {
+    try {
+      if (name === 'run_code') {
+        const result = await sandboxService.runCode(args.code, {
+          language: args.language,
+          stdin: args.stdin,
+        });
+        return {
+          ok: result.ok,
+          language: result.language,
+          stdout: result.stdout.substring(0, 3000),
+          stderr: result.stderr.substring(0, 1500),
+          exitCode: result.exitCode,
+          durationMs: result.durationMs,
+          error: result.error,
+        };
+      }
+      if (name === 'web_search') {
+        const results = await webSearchService.search(args.query, 5);
+        return {
+          query: args.query,
+          results: (results || []).slice(0, 5).map(r => ({
+            title: r.title,
+            url: r.url,
+            snippet: (r.snippet || '').substring(0, 300),
+          })),
+        };
+      }
+      return { error: `Unknown tool: ${name}` };
+    } catch (err) {
+      return { error: `Tool ${name} failed: ${err.message}` };
     }
   }
 
