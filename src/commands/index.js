@@ -48,6 +48,7 @@ Ketik command atau gunakan button untuk akses fitur:
 🔍 */review* \`kode\` — Review kualitas kode
 📖 */explain* \`kode\` — Penjelasan step-by-step
 💬 */chat* \`pesan\` — Chat tentang apapun
+🔍 */aistatus* — Cek konfigurasi AI & test koneksi
 
 *🔧 Lihat panduan detail tiap fitur:*
 `;
@@ -105,7 +106,11 @@ Ketik deskripsi kode yang ingin dibuat.
     }
   } catch (error) {
     console.error('Code command error:', error);
-    await ctx.reply('❌ Gagal generate kode. Coba lagi nanti.', backHomeKeyboard());
+    const errMsg = String(error.message || error).substring(0, 300);
+    await ctx.replyWithMarkdown(
+      `❌ *Gagal generate kode.*\n\n*Detail:* \`${errMsg}\`\n\n*Cek konfigurasi:* ketik /aistatus`,
+      backHomeKeyboard()
+    );
   }
 }
 
@@ -161,7 +166,11 @@ function add(a, b) {
     }
   } catch (error) {
     console.error('Review command error:', error);
-    await ctx.reply('❌ Gagal mereview kode. Coba lagi nanti.', backHomeKeyboard());
+    const errMsg = String(error.message || error).substring(0, 300);
+    await ctx.replyWithMarkdown(
+      `❌ *Gagal mereview kode.*\n\n*Detail:* \`${errMsg}\`\n\n*Cek konfigurasi:* ketik /aistatus`,
+      backHomeKeyboard()
+    );
   }
 }
 
@@ -228,7 +237,11 @@ Kirim kode yang bermasalah.
     }
   } catch (error) {
     console.error('Debug command error:', error);
-    await ctx.reply('❌ Gagal mendebug kode. Coba lagi nanti.', backHomeKeyboard());
+    const errMsg = String(error.message || error).substring(0, 300);
+    await ctx.replyWithMarkdown(
+      `❌ *Gagal mendebug kode.*\n\n*Detail:* \`${errMsg}\`\n\n*Cek konfigurasi:* ketik /aistatus`,
+      backHomeKeyboard()
+    );
   }
 }
 
@@ -280,7 +293,11 @@ const result = arr.reduce((a,b) => a + b, 0);
     }
   } catch (error) {
     console.error('Explain command error:', error);
-    await ctx.reply('❌ Gagal menjelaskan kode. Coba lagi nanti.', backHomeKeyboard());
+    const errMsg = String(error.message || error).substring(0, 300);
+    await ctx.replyWithMarkdown(
+      `❌ *Gagal menjelaskan kode.*\n\n*Detail:* \`${errMsg}\`\n\n*Cek konfigurasi:* ketik /aistatus`,
+      backHomeKeyboard()
+    );
   }
 }
 
@@ -325,7 +342,11 @@ export async function handleChat(ctx) {
     }
   } catch (error) {
     console.error('Chat command error:', error);
-    await ctx.reply('❌ Gagal memproses pesan. Coba lagi nanti.', backHomeKeyboard());
+    const errMsg = String(error.message || error).substring(0, 300);
+    await ctx.replyWithMarkdown(
+      `❌ *Gagal memproses pesan.*\n\n*Detail:* \`${errMsg}\`\n\n*Cek konfigurasi:* ketik /aistatus`,
+      backHomeKeyboard()
+    );
   }
 }
 
@@ -403,4 +424,74 @@ export function handleStats(ctx) {
 `;
 
   return ctx.replyWithMarkdown(statsMessage, statsKeyboard());
+}
+
+// ============================================
+// /AISTATUS — Diagnostic command for AI service
+// ============================================
+export async function handleAiStatus(ctx) {
+  try {
+    await ctx.replyWithChatAction('typing');
+
+    // Force re-initialize to pick up latest env vars
+    if (!aiService.initialized) {
+      await aiService.initialize();
+    }
+
+    const status = aiService.getStatus();
+
+    let msg = `
+🔍 *AI Service Status*
+
+┌─────────────────────
+│ ✅ Initialized: *${status.initialized ? 'YES' : 'NO'}*
+│ 🌐 Provider: *${status.provider || '(none)'}*
+│ 🌍 Base URL: \`${status.baseUrl || '-'}\`
+│ 🤖 Model: \`${status.model || '-'}\`
+│ 🔑 API Key set: *${status.hasApiKey ? 'YES' : 'NO'}*
+│ 🔑 Key (masked): \`${status.apiKeyMasked}\`
+│ 🔑 Key length: *${status.apiKeyLength} chars*
+└─────────────────────
+
+*Env vars:*
+│ • \`AI_PROVIDER=${status.envProvider}\`
+│ • \`AI_MODEL=${status.envModel}\`
+│ • \`AI_BASE_URL=${status.envBaseUrl}\`
+`;
+
+    if (!status.initialized) {
+      msg += `
+❌ *AI service belum terkonfigurasi!*
+
+*Fix:*
+1. Buka Railway dashboard
+2. Pilih service telegram-ai-agent
+3. Tab *Variables*
+4. Tambah:
+   • \`AI_PROVIDER=groq\`
+   • \`AI_API_KEY=gsk_xxxxxxxx\`
+5. Save → auto-redeploy
+6. Tunggu 1-2 menit
+7. Coba lagi
+`;
+    } else {
+      msg += `\n🧪 *Testing connection...*`;
+      await ctx.replyWithMarkdown(msg);
+
+      const test = await aiService.testConnection();
+      const testMsg = test.ok
+        ? `✅ *Test connection: BERHASIL*\n\n📡 Model: \`${test.model}\`\n💬 Response: \`${test.message}\``
+        : `❌ *Test connection: GAGAL*\n\n📡 Model: \`${test.model}\`\n❗ Error: \`${String(test.message).substring(0, 400)}\`\n\n*Possible causes:*\n• API key salah/expired\n• Model tidak tersedia di akun\n• Rate limit terkena\n• Network issue`;
+
+      return ctx.replyWithMarkdown(testMsg, backHomeKeyboard());
+    }
+
+    return ctx.replyWithMarkdown(msg, backHomeKeyboard());
+  } catch (error) {
+    console.error('AiStatus command error:', error);
+    return ctx.replyWithMarkdown(
+      `❌ *Gagal cek status AI.*\n\n*Error:* \`${String(error.message).substring(0, 200)}\``,
+      backHomeKeyboard()
+    );
+  }
 }

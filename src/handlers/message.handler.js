@@ -65,21 +65,32 @@ export async function handleMessage(ctx) {
     }
   } catch (error) {
     console.error('Message handler error:', error);
-    const errMsg = error.message || '';
-    if (errMsg.includes('AI service is not configured') || errMsg.includes('AI_API_KEY')) {
+    const errMsg = String(error.message || error);
+    if (errMsg.includes('AI service is not configured') || errMsg.includes('AI_API_KEY') || errMsg.includes('AUTH FAILED')) {
       await ctx.replyWithMarkdown(
-        '⚠️ *AI service belum dikonfigurasi*\n\n' +
-        'Bot admin perlu set API key dulu.\n\n' +
-        '*Cara setup (gratis):*\n' +
+        '⚠️ *AI service belum dikonfigurasi atau API key invalid*\n\n' +
+        '*Detail:* `' + errMsg.substring(0, 200) + '`\n\n' +
+        '*Cara setup (gratis via Groq):*\n' +
         '1. Daftar di https://console.groq.com\n' +
         '2. Buat API key gratis\n' +
-        '3. Set env var: `AI_PROVIDER=groq` dan `AI_API_KEY=...`\n\n' +
-        'Setelah itu bot bisa dipake lagi.'
+        '3. Set env var di Railway:\n' +
+        '   • `AI_PROVIDER=groq`\n' +
+        '   • `AI_API_KEY=gsk_...`\n' +
+        '4. Redeploy service\n\n' +
+        'Cek status: ketik `/aistatus`'
       );
-    } else if (errMsg.includes('fetch failed') || errMsg.includes('Connect Timeout')) {
-      await ctx.reply('⚠️ AI service lagi bermasalah (koneksi timeout). Coba lagi sebentar.');
+    } else if (errMsg.includes('fetch failed') || errMsg.includes('Connect Timeout') || errMsg.includes('timeout')) {
+      await ctx.replyWithMarkdown(
+        '⚠️ *AI service timeout*\n\n' +
+        'Koneksi ke provider terlalu lama. Coba lagi sebentar.\n\n' +
+        `*Detail:* \`${errMsg.substring(0, 150)}\``
+      );
     } else {
-      await ctx.reply(`❌ Gagal memproses pesan: ${errMsg.substring(0, 100)}`);
+      await ctx.replyWithMarkdown(
+        `❌ *Gagal memproses pesan.*\n\n` +
+        `*Detail:* \`${errMsg.substring(0, 250)}\`\n\n` +
+        `*Cek konfigurasi:* ketik /aistatus`
+      );
     }
   }
 }

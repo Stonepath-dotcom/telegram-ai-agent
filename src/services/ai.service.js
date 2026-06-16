@@ -22,10 +22,18 @@ const PROVIDER_PRESETS = {
   groq: {
     baseUrl: 'https://api.groq.com/openai/v1',
     defaultModel: 'llama-3.3-70b-versatile',
+    // Fallback models when primary is rate-limited or unavailable
+    fallbackModels: [
+      'llama-3.1-8b-instant',
+      'gemma2-9b-it',
+      'llama3-70b-8192',
+      'llama3-8b-8192',
+    ],
   },
   openai: {
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
+    fallbackModels: ['gpt-4o-mini', 'gpt-3.5-turbo'],
   },
   openrouter: {
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -40,6 +48,7 @@ const PROVIDER_PRESETS = {
   together: {
     baseUrl: 'https://api.together.xyz/v1',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    fallbackModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
   },
 };
 
@@ -221,7 +230,13 @@ class AIService {
         max_tokens: options.max_tokens ?? config.ai.maxTokens,
       };
 
+      // Mask API key in error logs
+      const maskedKey = this.apiKey ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}` : 'NOT_SET';
+
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -233,33 +248,130 @@ class AIService {
             } : {}),
           },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeout);
 
         if (!response.ok) {
           const errorText = await response.text();
-          // If rate-limited (429) or model not found, try next fallback model
-          if (response.status === 429 || response.status === 404) {
-            console.warn(`⚠️ Model ${model} unavailable (${response.status}), trying fallback...`);
-            lastError = new Error(`API ${response.status}: ${errorText.substring(0, 100)}`);
+          let errorParsed = errorText;
+          try {
+            const parsed = JSON.parse(errorText);
+            errorParsed = parsed.error?.message || parsed.message || errorText;
+          } catch (e) { /* keep raw text */ }
+
+          console.warn(`⚠️ [${this.provider}] model=${model} status=${response.status} key=${maskedKey}`);
+          console.warn(`⚠️ Error: ${String(errorParsed).substring(0, 200)}`);
+
+          // If rate-limited (429), model not found (404), or model deprecated (400 with model error), try next fallback
+          const shouldFallback = response.status === 429 ||
+                                 response.status === 404 ||
+                                 (response.status === 400 && /model/i.test(errorParsed));
+
+          if (shouldFallback) {
+            lastError = new Error(`[${this.provider}] ${response.status}: ${String(errorParsed).substring(0, 120)}`);
             continue;
           }
-          throw new Error(`API ${response.status}: ${errorText.substring(0, 200)}`);
+
+          // Auth errors - don't retry, fail fast with clear message
+          if (response.status === 401 || response.status === 403) {
+            throw new Error(`[${this.provider}] AUTH FAILED (${response.status}). API key invalid or expired. Key used: ${maskedKey}. ${String(errorParsed).substring(0, 100)}`);
+          }
+
+          throw new Error(`[${this.provider}] ${response.status}: ${String(errorParsed).substring(0, 200)}`);
         }
 
         const data = await response.json();
         if (model !== this.model) {
           console.log(`✅ Used fallback model: ${model}`);
         }
-        return data.choices?.[0]?.message?.content || 'Maaf, tidak ada respons dari AI.';
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) {
+          console.warn('⚠️ Empty content from AI:', JSON.stringify(data).substring(0, 200));
+          return 'Maaf, AI tidak memberikan respons. Coba ketik ulang dengan lebih spesifik.';
+        }
+        return content;
       } catch (err) {
-        // Network/timeout error - try next model
-        console.warn(`⚠️ Model ${model} failed: ${err.message.substring(0, 80)}`);
-        lastError = err;
+        if (err.name === 'AbortError') {
+          console.warn(`⚠️ Model ${model} TIMEOUT (30s)`);
+          lastError = new Error(`[${this.provider}] Request timeout (30s) for model ${model}`);
+        } else {
+          console.warn(`⚠️ Model ${model} failed: ${err.message.substring(0, 120)}`);
+          lastError = err;
+        }
         continue;
       }
     }
 
-    throw lastError || new Error('All models failed');
+    throw lastError || new Error(`[${this.provider}] All models failed`);
+  }
+
+  /**
+   * Get diagnostic status - useful for /aistatus command
+   */
+  getStatus() {
+    return {
+      initialized: this.initialized,
+      provider: this.provider,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      hasApiKey: !!this.apiKey,
+      apiKeyMasked: this.apiKey
+        ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}`
+        : 'NOT_SET',
+      apiKeyLength: this.apiKey ? this.apiKey.length : 0,
+      envProvider: process.env.AI_PROVIDER || '(not set)',
+      envModel: process.env.AI_MODEL || '(using default)',
+      envBaseUrl: process.env.AI_BASE_URL || '(using default)',
+    };
+  }
+
+  /**
+   * Test AI connection with a tiny request - useful for diagnostics
+   * Returns { ok: boolean, message: string, model: string }
+   */
+  async testConnection() {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    if (!this.initialized) {
+      return {
+        ok: false,
+        message: 'AI service not initialized. Set AI_PROVIDER and AI_API_KEY env vars.',
+        model: '-',
+      };
+    }
+
+    if (this.provider === 'zai') {
+      try {
+        const completion = await this.zai.chat.completions.create({
+          messages: [{ role: 'user', content: 'Say OK' }],
+          max_tokens: 10,
+        });
+        return {
+          ok: true,
+          message: 'Z.ai SDK OK',
+          model: 'zai',
+        };
+      } catch (e) {
+        return { ok: false, message: `Z.ai error: ${e.message}`, model: 'zai' };
+      }
+    }
+
+    try {
+      const response = await this._callOpenAICompatible(
+        [{ role: 'user', content: 'Say OK' }],
+        { max_tokens: 10 }
+      );
+      return {
+        ok: true,
+        message: `Connection OK. Response: ${response.substring(0, 50)}`,
+        model: this.model,
+      };
+    } catch (e) {
+      return { ok: false, message: e.message, model: this.model };
+    }
   }
 
   /**
@@ -283,7 +395,8 @@ class AIService {
       return await this._callOpenAICompatible(messages);
     } catch (error) {
       console.error('AI Chat Error:', error.message);
-      throw new Error(`AI Error: ${error.message}`);
+      // Preserve the original error message with provider prefix so users can see real cause
+      throw error;
     }
   }
 
@@ -318,7 +431,7 @@ class AIService {
       return await this._callOpenAICompatible(messages, { temperature: 0.4 });
     } catch (error) {
       console.error('Code Generation Error:', error.message);
-      throw new Error(`Code Generation Error: ${error.message}`);
+      throw error; // preserve original message
     }
   }
 
@@ -356,7 +469,7 @@ class AIService {
       return await this._callOpenAICompatible(messages, { temperature: 0.3 });
     } catch (error) {
       console.error('Debug Error:', error.message);
-      throw new Error(`Debug Error: ${error.message}`);
+      throw error;
     }
   }
 
@@ -396,7 +509,7 @@ Format your review with:
       return await this._callOpenAICompatible(messages, { temperature: 0.4 });
     } catch (error) {
       console.error('Review Error:', error.message);
-      throw new Error(`Review Error: ${error.message}`);
+      throw error;
     }
   }
 
@@ -430,7 +543,7 @@ Format your review with:
       return await this._callOpenAICompatible(messages, { temperature: 0.5 });
     } catch (error) {
       console.error('Explain Error:', error.message);
-      throw new Error(`Explain Error: ${error.message}`);
+      throw error;
     }
   }
 

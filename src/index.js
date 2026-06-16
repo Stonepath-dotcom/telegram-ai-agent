@@ -13,6 +13,7 @@ import {
   handleMode,
   handleClear,
   handleStats,
+  handleAiStatus,
 } from './commands/index.js';
 import { handleMessage, handleDocument } from './handlers/message.handler.js';
 import { handleCallbackQuery } from './handlers/callback.handler.js';
@@ -74,6 +75,7 @@ bot.command('chat', handleChat);
 bot.command('mode', handleMode);
 bot.command('clear', handleClear);
 bot.command('stats', handleStats);
+bot.command('aistatus', handleAiStatus);
 
 // ============================================
 // MESSAGE HANDLERS
@@ -172,16 +174,17 @@ async function startBot() {
     console.log(`📌 Bot ID: ${botInfo.id}`);
     console.log('');
     console.log('💬 Commands available:');
-    console.log('   /start  - Welcome message');
-    console.log('   /help   - Detailed help');
-    console.log('   /code   - Generate code');
-    console.log('   /review - Review code');
-    console.log('   /debug  - Debug code');
-    console.log('   /explain- Explain code');
-    console.log('   /chat   - Chat mode');
-    console.log('   /mode   - Change mode');
-    console.log('   /clear  - Clear history');
-    console.log('   /stats  - Bot statistics');
+    console.log('   /start    - Welcome message');
+    console.log('   /help     - Detailed help');
+    console.log('   /code     - Generate code');
+    console.log('   /review   - Review code');
+    console.log('   /debug    - Debug code');
+    console.log('   /explain  - Explain code');
+    console.log('   /chat     - Chat mode');
+    console.log('   /mode     - Change mode');
+    console.log('   /clear    - Clear history');
+    console.log('   /stats    - Bot statistics');
+    console.log('   /aistatus - Cek konfigurasi AI & test connection');
     console.log('');
     console.log('⏹️  Press Ctrl+C to stop');
     console.log('');
