@@ -132,15 +132,33 @@ async function startBot() {
     console.log(`✅ Bot verified: @${botInfo.username} (ID: ${botInfo.id})`);
 
     // Start bot with explicit polling config
-    // Note: bot.launch() returns a Promise that may not resolve in some environments,
-    // but the bot starts polling immediately. We don't await it.
+    // Handle 409 conflict errors gracefully - don't exit, just retry after delay
     console.log('📋 Starting long polling...');
-    bot.launch({
-      allowedUpdates: ['message', 'callback_query'],
-    }).catch(err => {
-      console.error('❌ Bot launch error:', err.message);
-      process.exit(1);
-    });
+
+    const launchBot = (retryCount = 0) => {
+      bot.launch({
+        allowedUpdates: ['message', 'callback_query'],
+        dropPendingUpdates: true,
+      }).catch(err => {
+        const is409Conflict = err.message && err.message.includes('409');
+        if (is409Conflict && retryCount < 5) {
+          // Another bot instance is still running - wait and retry
+          console.warn(`⚠️ 409 Conflict (another instance running). Retrying in ${5 * (retryCount + 1)}s... [attempt ${retryCount + 1}/5]`);
+          setTimeout(() => launchBot(retryCount + 1), 5000 * (retryCount + 1));
+        } else {
+          console.error('❌ Bot launch error:', err.message);
+          if (is409Conflict) {
+            console.error('❌ Multiple 409 conflicts. Another bot instance may be running elsewhere.');
+            console.error('❌ Stopping to prevent restart loop.');
+            // Don't exit - let Railway keep this container alive, just no polling
+          } else {
+            process.exit(1);
+          }
+        }
+      });
+    };
+
+    launchBot();
 
     // Give polling a moment to establish, then print success
     await new Promise(resolve => setTimeout(resolve, 2000));
