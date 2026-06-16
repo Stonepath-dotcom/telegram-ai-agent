@@ -30,6 +30,12 @@ const PROVIDER_PRESETS = {
   openrouter: {
     baseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    // Fallback models when primary is rate-limited
+    fallbackModels: [
+      'qwen/qwen3-coder:free',
+      'google/gemma-4-31b-it:free',
+      'meta-llama/llama-3.2-3b-instruct:free',
+    ],
   },
   together: {
     baseUrl: 'https://api.together.xyz/v1',
@@ -195,37 +201,65 @@ class AIService {
   }
 
   /**
-   * Call OpenAI-compatible chat completions API
+   * Call OpenAI-compatible chat completions API with fallback support
    */
   async _callOpenAICompatible(messages, options = {}) {
     const url = `${this.baseUrl}/chat/completions`;
-    const body = {
-      model: options.model || this.model,
-      messages,
-      temperature: options.temperature ?? config.ai.temperature,
-      max_tokens: options.max_tokens ?? config.ai.maxTokens,
-    };
+    const preset = PROVIDER_PRESETS[this.provider];
+    const modelsToTry = [options.model || this.model, ...(preset?.fallbackModels || [])];
+    const triedModels = new Set();
+    let lastError = null;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-        ...(this.provider === 'openrouter' ? {
-          'HTTP-Referer': 'https://github.com/Stonepath-dotcom/telegram-ai-agent',
-          'X-Title': 'Telegram AI Agent Bot',
-        } : {}),
-      },
-      body: JSON.stringify(body),
-    });
+    for (const model of modelsToTry) {
+      if (triedModels.has(model)) continue;
+      triedModels.add(model);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API ${response.status}: ${errorText.substring(0, 200)}`);
+      const body = {
+        model,
+        messages,
+        temperature: options.temperature ?? config.ai.temperature,
+        max_tokens: options.max_tokens ?? config.ai.maxTokens,
+      };
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+            ...(this.provider === 'openrouter' ? {
+              'HTTP-Referer': 'https://github.com/Stonepath-dotcom/telegram-ai-agent',
+              'X-Title': 'Telegram AI Agent Bot',
+            } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          // If rate-limited (429) or model not found, try next fallback model
+          if (response.status === 429 || response.status === 404) {
+            console.warn(`⚠️ Model ${model} unavailable (${response.status}), trying fallback...`);
+            lastError = new Error(`API ${response.status}: ${errorText.substring(0, 100)}`);
+            continue;
+          }
+          throw new Error(`API ${response.status}: ${errorText.substring(0, 200)}`);
+        }
+
+        const data = await response.json();
+        if (model !== this.model) {
+          console.log(`✅ Used fallback model: ${model}`);
+        }
+        return data.choices?.[0]?.message?.content || 'Maaf, tidak ada respons dari AI.';
+      } catch (err) {
+        // Network/timeout error - try next model
+        console.warn(`⚠️ Model ${model} failed: ${err.message.substring(0, 80)}`);
+        lastError = err;
+        continue;
+      }
     }
 
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || 'Maaf, tidak ada respons dari AI.';
+    throw lastError || new Error('All models failed');
   }
 
   /**
