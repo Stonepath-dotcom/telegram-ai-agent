@@ -24,7 +24,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // src/commands/ -> ../../docs/banners/
 const BANNER_DIR = path.resolve(__dirname, '../../docs/banners');
-const START_BANNER = path.join(BANNER_DIR, 'glo-agent-hero-dark.png');
+const START_BANNER = path.join(BANNER_DIR, 'glo-agent-hero-v2.png');
 const HELP_BANNER = path.join(BANNER_DIR, 'glo-agent-features-grid.png');
 
 function fileExists(p) {
@@ -78,8 +78,8 @@ export async function handleStart(ctx) {
   // 1) Send the hero banner as a photo (silent fallback if missing).
   //    Telegram captions are limited to 1024 chars — keep this short.
   const bannerCaption = isPremium
-    ? `💎 *G L O   A G E N T*  ·  Premium\nVision · Voice · Code Sandbox · Web Search`
-    : `✨ *G L O   A G E N T*\nVision · Voice · Code Sandbox · Web Search`;
+    ? `💎 *glo Agent*  ·  Premium\nYour AI pair programmer — Vision · Voice · Code · Web`
+    : `✨ *glo Agent*\nYour AI pair programmer — Vision · Voice · Code · Web`;
   await sendBanner(ctx, START_BANNER, bannerCaption);
 
   // 2) Full welcome text + main menu keyboard as a follow-up message.
