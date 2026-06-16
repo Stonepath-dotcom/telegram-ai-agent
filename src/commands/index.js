@@ -22,10 +22,35 @@ import {
 
 // Resolve banner asset path (works both in dev and in Railway container /app)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// src/commands/ -> ../../docs/banners/
-const BANNER_DIR = path.resolve(__dirname, '../../docs/banners');
+// src/commands/ -> ../../assets/banners/
+const BANNER_DIR = path.resolve(__dirname, '../../assets/banners');
 const START_BANNER = path.join(BANNER_DIR, 'glo-agent-hero-v2.png');
 const HELP_BANNER = path.join(BANNER_DIR, 'glo-agent-features-grid.png');
+
+// Pre-load banner buffers at module init so we know immediately if they're missing.
+// Buffer-based source is more reliable with Telegraf than fs.createReadStream.
+const START_BANNER_BUF = (() => {
+  try {
+    if (fs.existsSync(START_BANNER)) return fs.readFileSync(START_BANNER);
+    console.warn(`⚠️  Start banner not found at: ${START_BANNER}`);
+  } catch (e) {
+    console.warn(`⚠️  Failed to load start banner: ${e?.message}`);
+  }
+  return null;
+})();
+const HELP_BANNER_BUF = (() => {
+  try {
+    if (fs.existsSync(HELP_BANNER)) return fs.readFileSync(HELP_BANNER);
+    console.warn(`⚠️  Help banner not found at: ${HELP_BANNER}`);
+  } catch (e) {
+    console.warn(`⚠️  Failed to load help banner: ${e?.message}`);
+  }
+  return null;
+})();
+
+console.log(`🖼️  Banner dir: ${BANNER_DIR}`);
+console.log(`🖼️  Start banner: ${START_BANNER_BUF ? `loaded (${START_BANNER_BUF.length} bytes)` : 'MISSING'}`);
+console.log(`🖼️  Help banner:  ${HELP_BANNER_BUF ? `loaded (${HELP_BANNER_BUF.length} bytes)` : 'MISSING'}`);
 
 function fileExists(p) {
   try {
@@ -35,18 +60,18 @@ function fileExists(p) {
   }
 }
 
-// Send a banner photo (with optional caption) — silent no-op if file missing.
+// Send a banner photo (with optional caption) — silent no-op if buffer is null.
 // Returns true on success, false on failure.
-async function sendBanner(ctx, filePath, caption) {
-  if (!fileExists(filePath)) return false;
+async function sendBanner(ctx, bannerBuf, caption) {
+  if (!bannerBuf) return false;
   try {
     if (caption) {
       await ctx.replyWithPhoto(
-        { source: fs.createReadStream(filePath) },
+        { source: bannerBuf },
         { caption, parse_mode: 'Markdown' }
       );
     } else {
-      await ctx.replyWithPhoto({ source: fs.createReadStream(filePath) });
+      await ctx.replyWithPhoto({ source: bannerBuf });
     }
     return true;
   } catch (e) {
@@ -80,7 +105,7 @@ export async function handleStart(ctx) {
   const bannerCaption = isPremium
     ? `💎 *glo Agent*  ·  Premium\nYour AI pair programmer — Vision · Voice · Code · Web`
     : `✨ *glo Agent*\nYour AI pair programmer — Vision · Voice · Code · Web`;
-  await sendBanner(ctx, START_BANNER, bannerCaption);
+  await sendBanner(ctx, START_BANNER_BUF, bannerCaption);
 
   // 2) Full welcome text + main menu keyboard as a follow-up message.
   const welcomeMessage = `
@@ -112,7 +137,7 @@ Pilih fitur di bawah 👇
 // ============================================
 export async function handleHelp(ctx) {
   // Optional: send features-grid banner first
-  await sendBanner(ctx, HELP_BANNER);
+  await sendBanner(ctx, HELP_BANNER_BUF);
 
   const helpMessage = `
 ✨ *Panduan Glo Agent*
