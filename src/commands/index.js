@@ -24,11 +24,14 @@ export function handleStart(ctx) {
   const userName = ctx.from.first_name || 'Friend';
 
   const welcomeMessage = `
-👋 *Halo, ${userName}!*
+✦  G L O   A G E N T  ✦
+━━━━━━━━━━━━━━━━━━━━
 
-Saya *AI Coding Agent* — asisten coding pintar yang siap bantu kamu _menulis, review, debug,_ dan _jelaskan_ kode dalam bahasa pemrograman apapun.
+Halo, *${userName}*.
 
-*⚡ Pilih fitur di bawah, atau ketik langsung:*
+Saya *Glo Agent* — asisten coding premium yang siap membantu kamu _menulis, menelaah, memperbaiki,_ dan _menjelaskan_ kode dalam bahasa pemrograman apapun.
+
+*Pilih fitur di bawah, atau ketik perintah langsung:*
 `;
 
   return ctx.replyWithMarkdown(welcomeMessage, mainMenuKeyboard());
@@ -39,18 +42,19 @@ Saya *AI Coding Agent* — asisten coding pintar yang siap bantu kamu _menulis, 
 // ============================================
 export function handleHelp(ctx) {
   const helpMessage = `
-📚 *Panduan AI Coding Agent*
+✦  *Panduan Glo Agent*  ✦
+━━━━━━━━━━━━━━━━━━━━
 
-Ketik command atau gunakan button untuk akses fitur:
+Ketik perintah atau gunakan tombol untuk mengakses fitur:
 
-🧑‍💻 */code* \`deskripsi\` — Generate kode
-🐛 */debug* \`kode\` — Cari & perbaiki bug
-🔍 */review* \`kode\` — Review kualitas kode
-📖 */explain* \`kode\` — Penjelasan step-by-step
-💬 */chat* \`pesan\` — Chat tentang apapun
-🔍 */aistatus* — Cek konfigurasi AI & test koneksi
+◆ */code* \`deskripsi\` — Generate kode
+◆ */debug* \`kode\` — Cari & perbaiki bug
+◆ */review* \`kode\` — Telaah kualitas kode
+◆ */explain* \`kode\` — Penjelasan step-by-step
+◆ */chat* \`pesan\` — Chat bebas
+◆ */aistatus* — Cek konfigurasi AI & test koneksi
 
-*🔧 Lihat panduan detail tiap fitur:*
+*Pilih panduan detail tiap fitur:*
 `;
 
   return ctx.replyWithMarkdown(helpMessage, helpKeyboard());
@@ -65,7 +69,7 @@ export async function handleCode(ctx) {
 
   if (!description) {
     const msg = `
-🧑‍💻 *Generate Kode*
+◆ *Generate Kode*
 
 Ketik deskripsi kode yang ingin dibuat.
 
@@ -123,7 +127,7 @@ export async function handleReview(ctx) {
 
   if (!code) {
     const msg = `
-🔍 *Code Review*
+◆ *Code Review*
 
 Kirim kode yang ingin direview.
 
@@ -183,7 +187,7 @@ export async function handleDebug(ctx) {
 
   if (!input) {
     const msg = `
-🐛 *Debug Kode*
+◆ *Debug Kode*
 
 Kirim kode yang bermasalah.
 
@@ -254,7 +258,7 @@ export async function handleExplain(ctx) {
 
   if (!code) {
     const msg = `
-📖 *Jelaskan Kode*
+◆ *Jelaskan Kode*
 
 Kirim kode yang ingin dijelaskan.
 
@@ -312,7 +316,7 @@ export async function handleChat(ctx) {
 
   if (!message) {
     return ctx.replyWithMarkdown(
-      '💬 *Mode Chat aktif!*\n\nKetik pesan apa saja untuk mulai chat.',
+      '✦ *Mode Chat aktif.*\n\nKetik pesan apa saja untuk mulai chat.',
       afterResponseKeyboard('normal')
     );
   }
@@ -361,14 +365,14 @@ export function handleMode(ctx) {
   if (mode && validModes.includes(mode)) {
     historyService.setMode(userId, mode);
     const modeNames = {
-      normal: '💬 Chat Biasa',
-      code: '🧑‍💻 Generate Kode',
-      debug: '🐛 Debugging',
-      review: '🔍 Code Review',
-      explain: '📖 Penjelasan Kode',
+      normal: '◈ Chat Biasa',
+      code: '◈ Generate Kode',
+      debug: '◈ Debugging',
+      review: '◈ Code Review',
+      explain: '◈ Penjelasan Kode',
     };
     return ctx.replyWithMarkdown(
-      `✅ *Mode aktif:* ${modeNames[mode]}`,
+      `✦ *Mode aktif:* ${modeNames[mode]}`,
       afterResponseKeyboard(mode)
     );
   }
@@ -376,7 +380,7 @@ export function handleMode(ctx) {
   // Show mode selector keyboard
   const currentMode = historyService.getMode(userId);
   return ctx.replyWithMarkdown(
-    `🔄 *Pilih Mode*\n\nMode saat ini: \`${currentMode}\``,
+    `✦ *Pilih Mode*\n\nMode saat ini: \`${currentMode}\``,
     modeKeyboard(currentMode)
   );
 }
@@ -388,7 +392,7 @@ export function handleClear(ctx) {
   const userId = ctx.from.id;
   historyService.clearHistory(userId);
   return ctx.replyWithMarkdown(
-    '🗑️ *Riwayat dihapus!*\n\nPercakapan baru dimulai.',
+    '⟡ *Riwayat dihapus.*\n\nPercakapan baru dimulai.',
     mainMenuKeyboard()
   );
 }
@@ -404,23 +408,22 @@ export function handleStats(ctx) {
   const history = historyService.getHistory(userId);
 
   const modeNames = {
-    normal: '💬 Chat Biasa',
-    code: '🧑‍💻 Generate Kode',
-    debug: '🐛 Debugging',
-    review: '🔍 Code Review',
-    explain: '📖 Penjelasan Kode',
+    normal: '◈ Chat Biasa',
+    code: '◈ Generate Kode',
+    debug: '◈ Debugging',
+    review: '◈ Code Review',
+    explain: '◈ Penjelasan Kode',
   };
 
   const statsMessage = `
-📊 *Bot Statistics*
+✦  *Statistik Glo Agent*  ✦
+━━━━━━━━━━━━━━━━━━━━
 
-┌─────────────────────
-│ 🔄 Mode: *${modeNames[currentMode] || currentMode}*
-│ 💬 Chat aktif: *${activeConversations}*
-│ 📝 Pesan di riwayat: *${history.length}*
-│ ⚡ Sisa request: *${remaining}/min*
-│ 👤 User ID: \`${userId}\`
-└─────────────────────
+◆ Mode aktif      : *${modeNames[currentMode] || currentMode}*
+◆ Chat aktif       : *${activeConversations}*
+◆ Pesan di riwayat : *${history.length}*
+◆ Sisa request     : *${remaining}/min*
+◆ User ID          : \`${userId}\`
 `;
 
   return ctx.replyWithMarkdown(statsMessage, statsKeyboard());
@@ -441,22 +444,21 @@ export async function handleAiStatus(ctx) {
     const status = aiService.getStatus();
 
     let msg = `
-🔍 *AI Service Status*
+✦  *AI Service Status — Glo Agent*  ✦
+━━━━━━━━━━━━━━━━━━━━
 
-┌─────────────────────
-│ ✅ Initialized: *${status.initialized ? 'YES' : 'NO'}*
-│ 🌐 Provider: *${status.provider || '(none)'}*
-│ 🌍 Base URL: \`${status.baseUrl || '-'}\`
-│ 🤖 Model: \`${status.model || '-'}\`
-│ 🔑 API Key set: *${status.hasApiKey ? 'YES' : 'NO'}*
-│ 🔑 Key (masked): \`${status.apiKeyMasked}\`
-│ 🔑 Key length: *${status.apiKeyLength} chars*
-└─────────────────────
+◆ Initialized : *${status.initialized ? 'YES ✓' : 'NO ✗'}*
+◆ Provider    : *${status.provider || '(none)'}*
+◆ Base URL    : \`${status.baseUrl || '-'}\`
+◆ Model       : \`${status.model || '-'}\`
+◆ API Key     : *${status.hasApiKey ? 'SET ✓' : 'MISSING ✗'}*
+◆ Key (masked): \`${status.apiKeyMasked}\`
+◆ Key length  : *${status.apiKeyLength} chars*
 
-*Env vars:*
-│ • \`AI_PROVIDER=${status.envProvider}\`
-│ • \`AI_MODEL=${status.envModel}\`
-│ • \`AI_BASE_URL=${status.envBaseUrl}\`
+*Environment variables:*
+◆ \`AI_PROVIDER=${status.envProvider}\`
+◆ \`AI_MODEL=${status.envModel}\`
+◆ \`AI_BASE_URL=${status.envBaseUrl}\`
 `;
 
     if (!status.initialized) {

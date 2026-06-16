@@ -1,7 +1,7 @@
 {
-  "name": "telegram-ai-agent",
-  "version": "1.0.0",
-  "description": "Smart Telegram AI Agent Bot - Can code, debug, review, and explain like a pro",
+  "name": "glo-agent",
+  "version": "2.0.0",
+  "description": "Glo Agent — Premium Telegram AI Coding Assistant (code, debug, review, explain)",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

@@ -33,17 +33,17 @@ export async function handleCallbackQuery(ctx) {
       historyService.setMode(userId, mode);
 
       const modeNames = {
-        normal: '💬 Chat Biasa',
-        code: '🧑‍💻 Generate Kode',
-        debug: '🐛 Debugging',
-        review: '🔍 Code Review',
-        explain: '📖 Penjelasan Kode',
+        normal: '◈ Chat Biasa',
+        code: '◈ Generate Kode',
+        debug: '◈ Debugging',
+        review: '◈ Code Review',
+        explain: '◈ Penjelasan Kode',
       };
 
-      await ctx.answerCbQuery(`✅ ${modeNames[mode]}`);
+      await ctx.answerCbQuery(`✦ ${modeNames[mode]}`);
 
       await ctx.editMessageText(
-        `✅ *Mode aktif: ${modeNames[mode]}*\n\n` +
+        `✦ *Mode aktif: ${modeNames[mode]}*\n\n` +
         (mode === 'normal' ? 'Ketik pesan apa saja untuk chat.' :
          mode === 'code' ? 'Ketik deskripsi kode yang ingin dibuat.\nContoh: `buat REST API Express.js`' :
          mode === 'debug' ? 'Kirim kode yang bermasalah.\nTambahkan `| ERROR: pesan` jika ada error.' :
@@ -63,7 +63,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'quick_code') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🧑‍💻 *Generate Kode*\n\nKetik deskripsi kode yang ingin dibuat, atau pilih bahasa dulu:',
+        '◆ *Generate Kode*\n\nKetik deskripsi kode yang ingin dibuat, atau pilih bahasa dulu:',
         { parse_mode: 'Markdown', ...languageSelectKeyboard() }
       );
       historyService.setMode(userId, 'code');
@@ -73,7 +73,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'quick_debug') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🐛 *Debug Kode*\n\nKirim kode yang bermasalah.\n\n*Format:*\n• Langsung paste kode\n• `kode | ERROR: pesan error`',
+        '◆ *Debug Kode*\n\nKirim kode yang bermasalah.\n\n*Format:*\n• Langsung paste kode\n• `kode | ERROR: pesan error`',
         { parse_mode: 'Markdown', ...backHomeKeyboard() }
       );
       historyService.setMode(userId, 'debug');
@@ -83,7 +83,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'quick_review') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🔍 *Code Review*\n\nKirim kode yang ingin direview.\nSaya akan analisis kualitas, keamanan, dan performa.',
+        '◆ *Code Review*\n\nKirim kode yang ingin direview.\nSaya akan analisis kualitas, keamanan, dan performa.',
         { parse_mode: 'Markdown', ...backHomeKeyboard() }
       );
       historyService.setMode(userId, 'review');
@@ -93,7 +93,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'quick_explain') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '📖 *Jelaskan Kode*\n\nKirim kode yang ingin dijelaskan.\nSaya akan break down step-by-step.',
+        '◆ *Jelaskan Kode*\n\nKirim kode yang ingin dijelaskan.\nSaya akan break down step-by-step.',
         { parse_mode: 'Markdown', ...backHomeKeyboard() }
       );
       historyService.setMode(userId, 'explain');
@@ -116,16 +116,16 @@ export async function handleCallbackQuery(ctx) {
       }
 
       const langNames = {
-        python: '🐍 Python',
-        javascript: '🟨 JavaScript',
-        rust: '🦀 Rust',
-        go: '🐹 Go',
-        java: '☕ Java',
-        typescript: '⚛️ TypeScript',
-        ruby: '💎 Ruby',
-        php: '🐘 PHP',
-        cpp: '⚡ C++',
-        csharp: '🔵 C#',
+        python: '◆ Python',
+        javascript: '◆ JavaScript',
+        rust: '◆ Rust',
+        go: '◆ Go',
+        java: '◆ Java',
+        typescript: '◆ TypeScript',
+        ruby: '◆ Ruby',
+        php: '◆ PHP',
+        cpp: '◆ C++',
+        csharp: '◆ C#',
       };
 
       await ctx.answerCbQuery('');
@@ -144,7 +144,7 @@ export async function handleCallbackQuery(ctx) {
       const currentMode = historyService.getMode(userId);
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🔄 *Pilih Mode*\n\nPilih mode percakapan yang sesuai kebutuhan:',
+        '✦ *Pilih Mode*\n\nPilih mode percakapan yang sesuai kebutuhan:',
         { parse_mode: 'Markdown', ...modeKeyboard(currentMode) }
       );
       return;
@@ -160,25 +160,24 @@ export async function handleCallbackQuery(ctx) {
       const history = historyService.getHistory(userId);
 
       const modeNames = {
-        normal: '💬 Chat Biasa',
-        code: '🧑‍💻 Generate Kode',
-        debug: '🐛 Debugging',
-        review: '🔍 Code Review',
-        explain: '📖 Penjelasan Kode',
+        normal: '◈ Chat Biasa',
+        code: '◈ Generate Kode',
+        debug: '◈ Debugging',
+        review: '◈ Code Review',
+        explain: '◈ Penjelasan Kode',
       };
 
       await ctx.answerCbQuery('');
 
       const statsMessage = `
-📊 *Bot Statistics*
+✦  *Statistik Glo Agent*  ✦
+━━━━━━━━━━━━━━━━━━━━
 
-┌─────────────────────
-│ 🔄 Mode: *${modeNames[currentMode] || currentMode}*
-│ 💬 Chat aktif: *${activeConversations}*
-│ 📝 Pesan di riwayat: *${history.length}*
-│ ⚡ Sisa request: *${remaining}/min*
-│ 👤 User ID: \`${userId}\`
-└─────────────────────
+◆ Mode aktif      : *${modeNames[currentMode] || currentMode}*
+◆ Chat aktif       : *${activeConversations}*
+◆ Pesan di riwayat : *${history.length}*
+◆ Sisa request     : *${remaining}/min*
+◆ User ID          : \`${userId}\`
 `;
       await ctx.editMessageText(statsMessage, {
         parse_mode: 'Markdown',
@@ -192,9 +191,9 @@ export async function handleCallbackQuery(ctx) {
     // ============================================
     if (data === 'clear_history') {
       historyService.clearHistory(userId);
-      await ctx.answerCbQuery('🗑️ Riwayat dihapus!');
+      await ctx.answerCbQuery('⟡ Riwayat dihapus');
       await ctx.editMessageText(
-        '🗑️ *Riwayat dihapus!*\n\nPercakapan baru dimulai.',
+        '⟡ *Riwayat dihapus.*\n\nPercakapan baru dimulai.',
         { parse_mode: 'Markdown', ...mainMenuKeyboard() }
       );
       return;
@@ -207,7 +206,7 @@ export async function handleCallbackQuery(ctx) {
       const userName = ctx.from.first_name || 'Friend';
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        `👋 *Halo, ${userName}!*\n\nSaya *AI Coding Agent* — asisten coding pintar yang siap bantu kamu _menulis, review, debug,_ dan _jelaskan_ kode.\n\n*⚡ Pilih fitur:*`,
+        `✦  G L O   A G E N T  ✦\n━━━━━━━━━━━━━━━━━━━━\n\nHalo, *${userName}*.\n\nSaya *Glo Agent* — asisten coding premium yang siap membantu kamu _menulis, menelaah, memperbaiki,_ dan _menjelaskan_ kode.\n\n*Pilih fitur di bawah:*`,
         { parse_mode: 'Markdown', ...mainMenuKeyboard() }
       );
       return;
@@ -219,7 +218,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'help_code') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🧑‍💻 *Generate Kode — Panduan*\n\n' +
+        '◆ *Generate Kode — Panduan*\n\n' +
         'Ketik `/code` diikuti deskripsi kode:\n' +
         '• `/code buat REST API Express.js`\n' +
         '• `/code Python web scraper`\n' +
@@ -236,7 +235,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'help_debug') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🐛 *Debug Kode — Panduan*\n\n' +
+        '◆ *Debug Kode — Panduan*\n\n' +
         'Kirim kode yang error:\n' +
         '• `/debug <paste kode>`\n' +
         '• `/debug <kode> | ERROR: <pesan>`\n\n' +
@@ -252,16 +251,16 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'help_review') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '🔍 *Code Review — Panduan*\n\n' +
+        '◆ *Code Review — Panduan*\n\n' +
         'Kirim kode yang ingin direview:\n' +
         '• `/review <paste kode>`\n' +
         '• Atau langsung paste kode tanpa command\n\n' +
         '*Yang dianalisis:*\n' +
-        '🟢 Kelebihan kode\n' +
-        '🟡 Area yang bisa ditingkatkan\n' +
-        '🔴 Masalah yang harus diperbaiki\n' +
-        '🛡️ Keamanan & vulnerability\n' +
-        '⚡ Performa',
+        '◆ Kelebihan kode\n' +
+        '◇ Area yang bisa ditingkatkan\n' +
+        '⟡ Masalah yang harus diperbaiki\n' +
+        '◆ Keamanan & vulnerability\n' +
+        '◆ Performa',
         { parse_mode: 'Markdown', ...helpKeyboard() }
       );
       return;
@@ -270,7 +269,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'help_explain') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '📖 *Explain Kode — Panduan*\n\n' +
+        '◆ *Explain Kode — Panduan*\n\n' +
         'Kirim kode yang ingin dijelaskan:\n' +
         '• `/explain <paste kode>`\n\n' +
         '*Yang akan kamu dapatkan:*\n' +
@@ -278,7 +277,7 @@ export async function handleCallbackQuery(ctx) {
         '• Breakdown step-by-step\n' +
         '• Penjelasan logic yang kompleks\n' +
         '• Analogi untuk mempermudah pemahaman\n\n' +
-        'Cocok untuk belajar kode baru! 🎓',
+        'Cocok untuk belajar kode baru.',
         { parse_mode: 'Markdown', ...helpKeyboard() }
       );
       return;
@@ -287,15 +286,15 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'help_chat') {
       await ctx.answerCbQuery('');
       await ctx.editMessageText(
-        '💬 *Chat Mode — Panduan*\n\n' +
+        '◆ *Chat Mode — Panduan*\n\n' +
         'Mode chat untuk diskusi bebas tentang:\n' +
         '• Arsitektur & design pattern\n' +
         '• Best practices\n' +
         '• Perbandingan teknologi\n' +
         '• Tips & trick programming\n' +
         '• Tanya jawab konsep CS\n\n' +
-        'Langsung ketik pesan, gak perlu command!\n' +
-        'Bot mengingat konteks percakapan. 🧠',
+        'Langsung ketik pesan, gak perlu command.\n' +
+        'Bot mengingat konteks percakapan.',
         { parse_mode: 'Markdown', ...helpKeyboard() }
       );
       return;
@@ -315,7 +314,7 @@ export async function handleCallbackQuery(ctx) {
     if (data === 'cancel_action') {
       await ctx.answerCbQuery('Dibatalkan');
       await ctx.editMessageText(
-        '❌ Aksi dibatalkan.',
+        '◇ Aksi dibatalkan.',
         { parse_mode: 'Markdown', ...mainMenuKeyboard() }
       );
       return;

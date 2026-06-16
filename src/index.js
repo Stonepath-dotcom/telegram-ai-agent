@@ -19,9 +19,9 @@ import { handleMessage, handleDocument } from './handlers/message.handler.js';
 import { handleCallbackQuery } from './handlers/callback.handler.js';
 
 /**
- * Telegram AI Agent Bot - Main Entry Point
- * 
- * A smart AI coding assistant bot for Telegram
+ * Glo Agent — Telegram AI Coding Assistant
+ *
+ * Premium AI bot untuk menulis, menelaah, debug, dan menjelaskan kode.
  * Powered by z-ai-web-dev-sdk
  */
 
@@ -108,8 +108,8 @@ bot.catch((err, ctx) => {
 
 async function startBot() {
   try {
-    console.log('🚀 Starting Telegram AI Agent Bot...');
-    console.log('📋 Initializing AI service...');
+    console.log('✦  Starting Glo Agent...');
+    console.log('✦  Initializing AI service...');
 
     // Initialize AI service (non-blocking - bot starts even if AI init fails)
     try {
@@ -129,13 +129,13 @@ async function startBot() {
     }
 
     // Verify bot token by calling getMe
-    console.log('📋 Verifying bot token...');
+    console.log('✦  Verifying bot token...');
     const botInfo = await bot.telegram.getMe();
-    console.log(`✅ Bot verified: @${botInfo.username} (ID: ${botInfo.id})`);
+    console.log(`✦  Bot verified: @${botInfo.username} (ID: ${botInfo.id})`);
 
     // Start bot with explicit polling config
     // Handle 409 conflict errors gracefully - don't exit, just retry after delay
-    console.log('📋 Starting long polling...');
+    console.log('✦  Starting long polling...');
 
     const launchBot = (retryCount = 0) => {
       bot.launch({
@@ -166,34 +166,34 @@ async function startBot() {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     console.log('');
-    console.log('✅ ═══════════════════════════════════════');
-    console.log('🤖 Telegram AI Agent Bot is RUNNING!');
-    console.log('✅ ═══════════════════════════════════════');
+    console.log('✦ ═══════════════════════════════════════');
+    console.log('✦  G L O   A G E N T   —   O N L I N E   ✦');
+    console.log('✦ ═══════════════════════════════════════');
     console.log('');
-    console.log(`📌 Bot Name: @${botInfo.username}`);
-    console.log(`📌 Bot ID: ${botInfo.id}`);
+    console.log(`◆ Bot Name : @${botInfo.username}`);
+    console.log(`◆ Bot ID   : ${botInfo.id}`);
     console.log('');
-    console.log('💬 Commands available:');
-    console.log('   /start    - Welcome message');
-    console.log('   /help     - Detailed help');
-    console.log('   /code     - Generate code');
-    console.log('   /review   - Review code');
-    console.log('   /debug    - Debug code');
-    console.log('   /explain  - Explain code');
-    console.log('   /chat     - Chat mode');
-    console.log('   /mode     - Change mode');
-    console.log('   /clear    - Clear history');
-    console.log('   /stats    - Bot statistics');
-    console.log('   /aistatus - Cek konfigurasi AI & test connection');
+    console.log('◆ Commands available:');
+    console.log('   /start    — Welcome message');
+    console.log('   /help     — Detailed help');
+    console.log('   /code     — Generate code');
+    console.log('   /review   — Review code');
+    console.log('   /debug    — Debug code');
+    console.log('   /explain  — Explain code');
+    console.log('   /chat     — Chat mode');
+    console.log('   /mode     — Change mode');
+    console.log('   /clear    — Clear history');
+    console.log('   /stats    — Bot statistics');
+    console.log('   /aistatus — Cek konfigurasi AI & test connection');
     console.log('');
-    console.log('⏹️  Press Ctrl+C to stop');
+    console.log('✦  Press Ctrl+C to stop');
     console.log('');
 
     // Keep-alive heartbeat
     setInterval(() => {
       const mem = process.memoryUsage();
       const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
-      console.log(`💓 Heartbeat | RSS: ${mb(mem.rss)}MB | Active chats: ${historyService.getActiveCount()}`);
+      console.log(`✦ Heartbeat | RSS: ${mb(mem.rss)}MB | Active chats: ${historyService.getActiveCount()}`);
     }, 60000);
 
   } catch (error) {
@@ -217,10 +217,10 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Graceful shutdown
 const shutdown = async (signal) => {
-  console.log(`\n${signal} received. Shutting down gracefully...`);
+  console.log(`\n${signal} received. Glo Agent shutting down gracefully...`);
   bot.stop(signal);
   historyService.stopCleanup();
-  console.log('👋 Bot stopped. Goodbye!');
+  console.log('✦  Glo Agent stopped. Goodbye!');
   process.exit(0);
 };
 
