@@ -481,19 +481,40 @@ export async function handleAiStatus(ctx) {
       await ctx.replyWithMarkdown(msg);
 
       const test = await aiService.testConnection();
-      const testMsg = test.ok
-        ? `✅ *Test connection: BERHASIL*\n\n📡 Model: \`${test.model}\`\n💬 Response: \`${test.message}\``
-        : `❌ *Test connection: GAGAL*\n\n📡 Model: \`${test.model}\`\n❗ Error: \`${String(test.message).substring(0, 400)}\`\n\n*Possible causes:*\n• API key salah/expired\n• Model tidak tersedia di akun\n• Rate limit terkena\n• Network issue`;
 
-      return ctx.replyWithMarkdown(testMsg, backHomeKeyboard());
+      // Sanitize any text that goes inside backticks — strip ` * _ [ to avoid Markdown parse failures
+      const sanitize = (s) => String(s ?? '').replace(/[`*_\[\]]/g, '').substring(0, 400);
+
+      const testMsg = test.ok
+        ? `✅ *Test connection: BERHASIL*\n\n📡 Model: \`${sanitize(test.model)}\`\n💬 Response: \`${sanitize(test.message)}\``
+        : `❌ *Test connection: GAGAL*\n\n📡 Model: \`${sanitize(test.model)}\`\n❗ Error: \`${sanitize(test.message)}\`\n\n*Possible causes:*\n• API key salah/expired\n• Model tidak tersedia di akun\n• Rate limit terkena\n• Network issue`;
+
+      try {
+        return await ctx.replyWithMarkdown(testMsg, backHomeKeyboard());
+      } catch (mdErr) {
+        // Markdown parse failed — fall back to plain text so the user ALWAYS sees something
+        console.error('Markdown send failed, falling back to plain text:', mdErr.message);
+        const plain = testMsg.replace(/\*/g, '').replace(/`/g, '').replace(/_/g, '');
+        return ctx.reply(plain, backHomeKeyboard());
+      }
     }
 
     return ctx.replyWithMarkdown(msg, backHomeKeyboard());
   } catch (error) {
     console.error('AiStatus command error:', error);
-    return ctx.replyWithMarkdown(
-      `❌ *Gagal cek status AI.*\n\n*Error:* \`${String(error.message).substring(0, 200)}\``,
-      backHomeKeyboard()
-    );
+    // Try Markdown first, but fall back to plain text so user ALWAYS sees the error
+    try {
+      const errMsg = String(error.message || error).replace(/[`*_\[\]]/g, '').substring(0, 200);
+      return await ctx.replyWithMarkdown(
+        `❌ *Gagal cek status AI.*\n\n*Error:* \`${errMsg}\``,
+        backHomeKeyboard()
+      );
+    } catch (mdErr) {
+      console.error('Markdown send failed in catch, using plain text:', mdErr.message);
+      return ctx.reply(
+        `❌ Gagal cek status AI.\n\nError: ${String(error.message || error).substring(0, 300)}`,
+        backHomeKeyboard()
+      );
+    }
   }
 }

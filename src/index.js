@@ -99,7 +99,8 @@ bot.on('callback_query', handleCallbackQuery);
 
 bot.catch((err, ctx) => {
   console.error('❌ Bot Error:', err);
-  ctx.reply('⚠️ Terjadi kesalahan. Coba lagi nanti.').catch(() => {});
+  const errLine = String(err?.message || err).substring(0, 200);
+  ctx.reply(`⚠️ Terjadi kesalahan.\n\nDetail: ${errLine}\n\nCoba lagi atau ketik /aistatus untuk cek status AI.`).catch(() => {});
 });
 
 // ============================================
