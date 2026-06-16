@@ -1,0 +1,19 @@
+{
+  "name": "telegram-ai-agent",
+  "version": "1.0.0",
+  "description": "Smart Telegram AI Agent Bot - Can code, debug, review, and explain like a pro",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node src/test.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "z-ai-web-dev-sdk": "latest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
