@@ -1,56 +1,93 @@
 /**
- * AI Service - Multi-provider support for OpenAI-compatible APIs
+ * AI Service v3 — Premium Multi-Provider with:
+ * - Streaming responses (SSE)
+ * - Vision support (Groq llama-4-scout / OpenRouter vision models)
+ * - Multi-model routing (simple vs complex query)
+ * - Tool calling (web_search, run_code)
+ * - Robust fallback models per provider
+ * - 30s timeout, masked API keys, JSON error parsing
  *
- * Supports:
- * - Z.ai SDK (for local/internal use)
- * - OpenAI-compatible APIs: Groq, OpenAI, OpenRouter, Together AI, etc.
- *
- * Environment variables:
- * - AI_PROVIDER: "zai" | "openai" | "groq" | "openrouter" | "together" | "custom" (default: auto-detect)
- * - AI_API_KEY: API key for the provider
- * - AI_BASE_URL: Base URL for custom provider (e.g., https://api.groq.com/openai/v1)
- * - AI_MODEL: Model name (e.g., llama-3.3-70b-versatile for Groq)
- *
- * For Z.ai SDK (local/internal only):
- * - ZAI_BASE_URL, ZAI_API_KEY, ZAI_TOKEN, ZAI_CHAT_ID, ZAI_USER_ID
+ * Env vars:
+ * - AI_PROVIDER: groq | openai | openrouter | together | custom | zai
+ * - AI_API_KEY: provider API key
+ * - AI_BASE_URL: override base URL
+ * - AI_MODEL: override primary model
+ * - AI_VISION_MODEL: override vision model (default: provider preset)
+ * - AI_FAST_MODEL: override fast/lightweight model (default: provider preset)
  */
 
 import config from '../../config/default.js';
 
-// Provider presets
+// Provider presets — each provider has primary + fallback + vision + fast models
 const PROVIDER_PRESETS = {
   groq: {
     baseUrl: 'https://api.groq.com/openai/v1',
     defaultModel: 'llama-3.3-70b-versatile',
-    // Fallback models when primary is rate-limited or unavailable
     fallbackModels: [
       'llama-3.1-8b-instant',
       'gemma2-9b-it',
       'llama3-70b-8192',
       'llama3-8b-8192',
     ],
+    visionModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    fastModel: 'llama-3.1-8b-instant',
+    supportsVision: true,
+    supportsStreaming: true,
+    supportsTools: true,
   },
   openai: {
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
     fallbackModels: ['gpt-4o-mini', 'gpt-3.5-turbo'],
+    visionModel: 'gpt-4o-mini',
+    fastModel: 'gpt-4o-mini',
+    supportsVision: true,
+    supportsStreaming: true,
+    supportsTools: true,
   },
   openrouter: {
     baseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-    // Fallback models when primary is rate-limited
     fallbackModels: [
       'qwen/qwen3-coder:free',
-      'google/gemma-4-31b-it:free',
       'meta-llama/llama-3.2-3b-instruct:free',
     ],
+    visionModel: 'meta-llama/llama-4-scout:free',
+    fastModel: 'meta-llama/llama-3.2-3b-instruct:free',
+    supportsVision: true,
+    supportsStreaming: true,
+    supportsTools: true,
   },
   together: {
     baseUrl: 'https://api.together.xyz/v1',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
     fallbackModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'],
+    visionModel: 'meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo',
+    fastModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    supportsVision: true,
+    supportsStreaming: true,
+    supportsTools: false,
   },
 };
+
+// Heuristic: classify if query is "complex" (needs big model) or "simple" (fast model ok)
+function classifyQueryComplexity(message) {
+  if (!message) return 'simple';
+  const text = String(message).toLowerCase();
+  const complexSignals = [
+    /write.*(function|class|component|api|service|endpoint)/,
+    /debug|bug|error|trace|stack.?trace/,
+    /refactor|optimi[sz]e|architecture|design.?pattern/,
+    /sql|database|schema|migration/,
+    /regex|algorithm|data.?structure/,
+    /explain|analyze|review/,
+    /docker|kubernetes|deploy|ci\/cd/i,
+    /\b(react|next\.js|vue|angular|svelte|express|nestjs|django|flask|fastapi|spring|laravel)\b/,
+  ];
+  const isLong = text.length > 250;
+  const hasComplexSignal = complexSignals.some(r => r.test(text));
+  return (hasComplexSignal || isLong) ? 'complex' : 'simple';
+}
 
 class AIService {
   constructor() {
@@ -58,13 +95,14 @@ class AIService {
     this.baseUrl = null;
     this.apiKey = null;
     this.model = null;
+    this.visionModel = null;
+    this.fastModel = null;
     this.zai = null;
     this.initialized = false;
   }
 
   /**
-   * Initialize the AI service
-   * Auto-detects provider based on environment variables
+   * Initialize the AI service — auto-detect provider from env vars
    */
   async initialize() {
     if (this.initialized) return;
@@ -72,14 +110,14 @@ class AIService {
     try {
       const provider = (process.env.AI_PROVIDER || '').toLowerCase();
 
-      // Determine provider and config
       if (provider && provider !== 'zai' && PROVIDER_PRESETS[provider]) {
-        // Use preset provider
         const preset = PROVIDER_PRESETS[provider];
         this.provider = provider;
         this.baseUrl = process.env.AI_BASE_URL || preset.baseUrl;
         this.apiKey = process.env.AI_API_KEY;
         this.model = process.env.AI_MODEL || preset.defaultModel;
+        this.visionModel = process.env.AI_VISION_MODEL || preset.visionModel || this.model;
+        this.fastModel = process.env.AI_FAST_MODEL || preset.fastModel || this.model;
 
         if (!this.apiKey) {
           console.error(`⚠️ AI_PROVIDER=${provider} but AI_API_KEY is not set!`);
@@ -90,17 +128,20 @@ class AIService {
 
         console.log(`✅ AI Provider: ${provider}`);
         console.log(`✅ AI Base URL: ${this.baseUrl}`);
-        console.log(`✅ AI Model: ${this.model}`);
+        console.log(`✅ AI Primary Model: ${this.model}`);
+        console.log(`✅ AI Vision Model: ${this.visionModel}`);
+        console.log(`✅ AI Fast Model: ${this.fastModel}`);
         this.initialized = true;
         return;
       }
 
       if (provider === 'custom' || (process.env.AI_BASE_URL && process.env.AI_API_KEY)) {
-        // Custom OpenAI-compatible provider
         this.provider = 'custom';
         this.baseUrl = process.env.AI_BASE_URL;
         this.apiKey = process.env.AI_API_KEY;
         this.model = process.env.AI_MODEL || 'gpt-3.5-turbo';
+        this.visionModel = process.env.AI_VISION_MODEL || this.model;
+        this.fastModel = process.env.AI_FAST_MODEL || this.model;
 
         if (!this.apiKey) {
           console.error('⚠️ AI_PROVIDER=custom but AI_API_KEY is not set!');
@@ -114,7 +155,7 @@ class AIService {
         return;
       }
 
-      // Fall back to Z.ai SDK (only works inside Z.ai infrastructure)
+      // Fallback to Z.ai SDK (only works inside Z.ai infrastructure)
       console.log('📋 No AI_PROVIDER set. Trying Z.ai SDK (works only inside Z.ai infra)...');
       await this._initializeZAI();
     } catch (error) {
@@ -124,9 +165,6 @@ class AIService {
     }
   }
 
-  /**
-   * Initialize Z.ai SDK (local/internal only)
-   */
   async _initializeZAI() {
     try {
       const ZAI = (await import('z-ai-web-dev-sdk')).default;
@@ -210,12 +248,42 @@ class AIService {
   }
 
   /**
-   * Call OpenAI-compatible chat completions API with fallback support
+   * Pick best model based on query complexity
+   * - complex: primary model (e.g., llama-3.3-70b)
+   * - simple: fast model (e.g., llama-3.1-8b-instant)
+   */
+  _pickModelForQuery(message) {
+    const complexity = classifyQueryComplexity(message);
+    const useModel = complexity === 'complex' ? this.model : (this.fastModel || this.model);
+    if (useModel !== this.model) {
+      console.log(`⚡ Multi-model routing: complexity=${complexity} → using ${useModel}`);
+    }
+    return useModel;
+  }
+
+  /**
+   * Core OpenAI-compatible call with fallback, timeout, error parsing.
+   * @param {Array} messages - chat messages
+   * @param {Object} options - { model, temperature, max_tokens, tools, tool_choice, vision: bool }
+   * @returns {Promise<string>} assistant content
    */
   async _callOpenAICompatible(messages, options = {}) {
     const url = `${this.baseUrl}/chat/completions`;
     const preset = PROVIDER_PRESETS[this.provider];
-    const modelsToTry = [options.model || this.model, ...(preset?.fallbackModels || [])];
+
+    // If caller specifies a model (e.g., for vision), use it as primary.
+    // Otherwise pick based on query complexity (multi-model routing).
+    const preferredModel = options.model || this._pickModelForQuery(options._userMessage);
+
+    // Build fallback list. For vision requests, only use the vision model.
+    let fallbackModels;
+    if (options.vision) {
+      fallbackModels = [this.visionModel, this.model];
+    } else {
+      fallbackModels = preset?.fallbackModels || [];
+    }
+
+    const modelsToTry = [preferredModel, ...fallbackModels];
     const triedModels = new Set();
     let lastError = null;
 
@@ -230,12 +298,19 @@ class AIService {
         max_tokens: options.max_tokens ?? config.ai.maxTokens,
       };
 
-      // Mask API key in error logs
-      const maskedKey = this.apiKey ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}` : 'NOT_SET';
+      // Groq/OpenAI vision: add stream:false explicitly
+      if (options.tools && preset?.supportsTools) {
+        body.tools = options.tools;
+        body.tool_choice = options.tool_choice || 'auto';
+      }
+
+      const maskedKey = this.apiKey
+        ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}`
+        : 'NOT_SET';
 
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+        const timeout = setTimeout(() => controller.abort(), 30000);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -264,7 +339,6 @@ class AIService {
           console.warn(`⚠️ [${this.provider}] model=${model} status=${response.status} key=${maskedKey}`);
           console.warn(`⚠️ Error: ${String(errorParsed).substring(0, 200)}`);
 
-          // If rate-limited (429), model not found (404), or model deprecated (400 with model error), try next fallback
           const shouldFallback = response.status === 429 ||
                                  response.status === 404 ||
                                  (response.status === 400 && /model/i.test(errorParsed));
@@ -274,7 +348,6 @@ class AIService {
             continue;
           }
 
-          // Auth errors - don't retry, fail fast with clear message
           if (response.status === 401 || response.status === 403) {
             throw new Error(`[${this.provider}] AUTH FAILED (${response.status}). API key invalid or expired. Key used: ${maskedKey}. ${String(errorParsed).substring(0, 100)}`);
           }
@@ -286,7 +359,18 @@ class AIService {
         if (model !== this.model) {
           console.log(`✅ Used fallback model: ${model}`);
         }
-        const content = data.choices?.[0]?.message?.content;
+
+        // Handle tool calls (if any)
+        const choice = data.choices?.[0];
+        const msg = choice?.message;
+        if (msg?.tool_calls && msg.tool_calls.length > 0) {
+          return {
+            content: msg.content || '',
+            toolCalls: msg.tool_calls,
+          };
+        }
+
+        const content = msg?.content;
         if (!content) {
           console.warn('⚠️ Empty content from AI:', JSON.stringify(data).substring(0, 200));
           return 'Maaf, AI tidak memberikan respons. Coba ketik ulang dengan lebih spesifik.';
@@ -308,7 +392,206 @@ class AIService {
   }
 
   /**
-   * Get diagnostic status - useful for /aistatus command
+   * Streaming call — returns async generator yielding text chunks.
+   * Falls back to non-streaming if provider doesn't support SSE.
+   * @param {Array} messages
+   * @param {Object} options
+   * @returns {AsyncGenerator<string>}
+   */
+  async *_callOpenAICompatibleStream(messages, options = {}) {
+    const url = `${this.baseUrl}/chat/completions`;
+    const preferredModel = options.model || this._pickModelForQuery(options._userMessage);
+
+    const body = {
+      model: preferredModel,
+      messages,
+      temperature: options.temperature ?? config.ai.temperature,
+      max_tokens: options.max_tokens ?? config.ai.maxTokens,
+      stream: true,
+    };
+
+    const maskedKey = this.apiKey
+      ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}`
+      : 'NOT_SET';
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s for streaming
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Accept': 'text/event-stream',
+          ...(this.provider === 'openrouter' ? {
+            'HTTP-Referer': 'https://github.com/Stonepath-dotcom/telegram-ai-agent',
+            'X-Title': 'Glo Agent',
+          } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorParsed = errorText;
+        try {
+          const parsed = JSON.parse(errorText);
+          errorParsed = parsed.error?.message || parsed.message || errorText;
+        } catch (e) { /* keep raw */ }
+        console.warn(`⚠️ [stream ${this.provider}] model=${preferredModel} status=${response.status} key=${maskedKey}`);
+        throw new Error(`[${this.provider}] ${response.status}: ${String(errorParsed).substring(0, 200)}`);
+      }
+
+      if (!response.body) {
+        // No stream body — fallback to non-streaming
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (content) yield content;
+        return;
+      }
+
+      // Parse SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') return;
+
+          try {
+            const json = JSON.parse(dataStr);
+            const delta = json.choices?.[0]?.delta?.content;
+            if (delta) yield delta;
+          } catch (e) {
+            // skip malformed chunk
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error(`[${this.provider}] Stream timeout (60s) for model ${preferredModel}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Streaming chat — yields text chunks for real-time typing UX.
+   * Falls back to non-streaming if provider is Z.ai or streaming fails.
+   */
+  async *streamChat(userMessage, history = [], mode = 'normal') {
+    await this.ensureInitialized();
+
+    const systemPrompt = this._getSystemPrompt(mode);
+    const messages = this._buildMessages(systemPrompt, history, userMessage);
+
+    if (this.provider === 'zai') {
+      // Z.ai SDK doesn't support streaming — fallback
+      const response = await this.chat(userMessage, history, mode);
+      // Simulate streaming by chunking on word boundaries
+      const words = response.split(/(\s+)/);
+      let buffer = '';
+      for (const w of words) {
+        buffer += w;
+        if (buffer.length >= 20) {
+          yield buffer;
+          buffer = '';
+        }
+      }
+      if (buffer) yield buffer;
+      return;
+    }
+
+    try {
+      for await (const chunk of this._callOpenAICompatibleStream(messages, { _userMessage: userMessage })) {
+        yield chunk;
+      }
+    } catch (err) {
+      // If streaming fails, fallback to non-streaming
+      console.warn(`⚠️ Stream failed, falling back to non-stream: ${err.message}`);
+      const response = await this._callOpenAICompatible(messages, { _userMessage: userMessage });
+      if (typeof response === 'string') {
+        const words = response.split(/(\s+)/);
+        let buffer = '';
+        for (const w of words) {
+          buffer += w;
+          if (buffer.length >= 30) {
+            yield buffer;
+            buffer = '';
+          }
+        }
+        if (buffer) yield buffer;
+      }
+    }
+  }
+
+  /**
+   * Vision: analyze an image with a text prompt.
+   * @param {string} imageBase64 - base64-encoded image data (no data URL prefix)
+   * @param {string} mimeType - e.g., 'image/jpeg', 'image/png'
+   * @param {string} prompt - user instruction
+   * @param {Array} history - prior chat history
+   * @returns {Promise<string>}
+   */
+  async analyzeImage(imageBase64, mimeType, prompt, history = []) {
+    await this.ensureInitialized();
+
+    const systemPrompt = `You are Glo Agent, a premium AI vision assistant. Analyze the image carefully.
+${this._commonOutputRules()}`;
+
+    const messages = [{ role: 'system', content: systemPrompt }];
+    for (const msg of history) {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt || 'Analyze this image. Describe what you see, identify any code, errors, or UI elements.' },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+      ],
+    });
+
+    if (this.provider === 'zai') {
+      // Z.ai SDK might support vision; try it
+      try {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: 0.4,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Tidak ada respons dari AI.';
+      } catch (e) {
+        throw new Error(`Z.ai vision error: ${e.message}`);
+      }
+    }
+
+    return await this._callOpenAICompatible(messages, {
+      vision: true,
+      model: this.visionModel,
+      temperature: 0.4,
+      _userMessage: prompt,
+    });
+  }
+
+  /**
+   * Get diagnostic status
    */
   getStatus() {
     return {
@@ -316,6 +599,8 @@ class AIService {
       provider: this.provider,
       baseUrl: this.baseUrl,
       model: this.model,
+      visionModel: this.visionModel,
+      fastModel: this.fastModel,
       hasApiKey: !!this.apiKey,
       apiKeyMasked: this.apiKey
         ? `${this.apiKey.substring(0, 8)}...${this.apiKey.substring(this.apiKey.length - 4)}`
@@ -324,12 +609,13 @@ class AIService {
       envProvider: process.env.AI_PROVIDER || '(not set)',
       envModel: process.env.AI_MODEL || '(using default)',
       envBaseUrl: process.env.AI_BASE_URL || '(using default)',
+      envVisionModel: process.env.AI_VISION_MODEL || '(using default)',
+      envFastModel: process.env.AI_FAST_MODEL || '(using default)',
     };
   }
 
   /**
-   * Test AI connection with a tiny request - useful for diagnostics
-   * Returns { ok: boolean, message: string, model: string }
+   * Test AI connection with a tiny request
    */
   async testConnection() {
     if (!this.initialized) {
@@ -349,11 +635,7 @@ class AIService {
           messages: [{ role: 'user', content: 'Say OK' }],
           max_tokens: 10,
         });
-        return {
-          ok: true,
-          message: 'Z.ai SDK OK',
-          model: 'zai',
-        };
+        return { ok: true, message: 'Z.ai SDK OK', model: 'zai' };
       } catch (e) {
         return { ok: false, message: `Z.ai error: ${e.message}`, model: 'zai' };
       }
@@ -366,7 +648,7 @@ class AIService {
       );
       return {
         ok: true,
-        message: `Connection OK. Response: ${response.substring(0, 50)}`,
+        message: `Connection OK. Response: ${String(response).substring(0, 50)}`,
         model: this.model,
       };
     } catch (e) {
@@ -392,17 +674,13 @@ class AIService {
         });
         return completion.choices[0]?.message?.content || 'Maaf, saya tidak bisa memproses permintaan Anda.';
       }
-      return await this._callOpenAICompatible(messages);
+      return await this._callOpenAICompatible(messages, { _userMessage: userMessage });
     } catch (error) {
       console.error('AI Chat Error:', error.message);
-      // Preserve the original error message with provider prefix so users can see real cause
       throw error;
     }
   }
 
-  /**
-   * Generate code based on description
-   */
   async generateCode(description, language = '', history = []) {
     await this.ensureInitialized();
 
@@ -430,16 +708,13 @@ OUTPUT RULES (CRITICAL):
         });
         return completion.choices[0]?.message?.content || 'Gagal generate kode.';
       }
-      return await this._callOpenAICompatible(messages, { temperature: 0.4 });
+      return await this._callOpenAICompatible(messages, { temperature: 0.4, _userMessage: description });
     } catch (error) {
       console.error('Code Generation Error:', error.message);
-      throw error; // preserve original message
+      throw error;
     }
   }
 
-  /**
-   * Debug code - find and fix bugs
-   */
   async debugCode(code, errorMsg = '', history = []) {
     await this.ensureInitialized();
 
@@ -468,16 +743,13 @@ OUTPUT RULES (CRITICAL):
         });
         return completion.choices[0]?.message?.content || 'Gagal menganalisis kode.';
       }
-      return await this._callOpenAICompatible(messages, { temperature: 0.3 });
+      return await this._callOpenAICompatible(messages, { temperature: 0.3, _userMessage: userMsg });
     } catch (error) {
       console.error('Debug Error:', error.message);
       throw error;
     }
   }
 
-  /**
-   * Review code - analyze quality, security, performance
-   */
   async reviewCode(code, history = []) {
     await this.ensureInitialized();
 
@@ -505,16 +777,13 @@ OUTPUT RULES (CRITICAL):
         });
         return completion.choices[0]?.message?.content || 'Gagal mereview kode.';
       }
-      return await this._callOpenAICompatible(messages, { temperature: 0.4 });
+      return await this._callOpenAICompatible(messages, { temperature: 0.4, _userMessage: code });
     } catch (error) {
       console.error('Review Error:', error.message);
       throw error;
     }
   }
 
-  /**
-   * Explain code - break down complex logic
-   */
   async explainCode(code, history = []) {
     await this.ensureInitialized();
 
@@ -539,7 +808,7 @@ OUTPUT RULES (CRITICAL):
         });
         return completion.choices[0]?.message?.content || 'Gagal menjelaskan kode.';
       }
-      return await this._callOpenAICompatible(messages, { temperature: 0.5 });
+      return await this._callOpenAICompatible(messages, { temperature: 0.5, _userMessage: code });
     } catch (error) {
       console.error('Explain Error:', error.message);
       throw error;
@@ -555,13 +824,22 @@ OUTPUT RULES (CRITICAL):
     return messages;
   }
 
+  _commonOutputRules() {
+    return `OUTPUT RULES:
+- DO NOT use ### markdown headers.
+- Use **bold** for labels instead of headers.
+- Keep formatting flat and scannable.
+- Respond in the same language the user uses.`;
+  }
+
   _getSystemPrompt(mode) {
+    const common = this._commonOutputRules();
     const modePrompts = {
-      normal: `You are Glo Agent, a premium AI coding assistant. Help users write, review, debug, and explain code.\n\nOUTPUT RULES (CRITICAL):\n- DO NOT use ### markdown headers. They are noisy and ugly in chat.\n- Use **bold** for labels instead of headers.\n- Keep formatting flat and scannable: short paragraphs, bullet lists, and code blocks only.\n- At most one short intro paragraph before any code block.\n- Always use markdown code blocks with language identifier.\n- Respond in the same language the user uses.`,
-      code: `You are Glo Agent, a premium AI coding specialist. Focus on writing excellent, production-ready code. Always use markdown code blocks with language identifiers. Do NOT use ### markdown headers — use **bold** for labels. Keep output flat and scannable. Respond in the same language the user uses.`,
-      debug: `You are Glo Agent, a premium AI debugging specialist. Find bugs efficiently. Always explain the root cause before providing the fix. Do NOT use ### markdown headers — use **bold** for labels. Keep output flat. Respond in the same language the user uses.`,
-      review: `You are Glo Agent, a premium AI code review specialist. Focus on code quality, security, performance, and maintainability. Do NOT use ### markdown headers — use **bold** for labels and flat bullet lists. Provide actionable, prioritized feedback. Respond in the same language the user uses.`,
-      explain: `You are Glo Agent, a premium AI code explanation specialist. Break down code into simple, understandable parts. Do NOT use ### markdown headers — use **bold** for labels. Use analogies when helpful. Be patient and clear. Respond in the same language the user uses.`,
+      normal: `You are Glo Agent, a premium AI coding assistant. Help users write, review, debug, and explain code.\n\n${common}\n- At most one short intro paragraph before any code block.\n- Always use markdown code blocks with language identifier.`,
+      code: `You are Glo Agent, a premium AI coding specialist. Focus on writing excellent, production-ready code. Always use markdown code blocks with language identifiers. ${common}`,
+      debug: `You are Glo Agent, a premium AI debugging specialist. Find bugs efficiently. Always explain the root cause before providing the fix. ${common}`,
+      review: `You are Glo Agent, a premium AI code review specialist. Focus on code quality, security, performance, and maintainability. ${common} Provide actionable, prioritized feedback.`,
+      explain: `You are Glo Agent, a premium AI code explanation specialist. Break down code into simple, understandable parts. ${common} Use analogies when helpful. Be patient and clear.`,
     };
     return modePrompts[mode] || modePrompts.normal;
   }

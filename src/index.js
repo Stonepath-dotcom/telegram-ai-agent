@@ -2,6 +2,8 @@ import { Telegraf } from 'telegraf';
 import config from '../config/default.js';
 import aiService from './services/ai.service.js';
 import historyService from './services/history.service.js';
+import premiumService from './services/premium.service.js';
+import memoryService from './services/memory.service.js';
 import {
   handleStart,
   handleHelp,
@@ -13,16 +15,33 @@ import {
   handleMode,
   handleClear,
   handleStats,
+  handleMyStats,
   handleAiStatus,
+  handleTier,
+  handleMemory,
+  handleSearch,
+  handleImage,
+  handleVoice,
+  handleTTS,
 } from './commands/index.js';
-import { handleMessage, handleDocument } from './handlers/message.handler.js';
-import { handleCallbackQuery } from './handlers/callback.handler.js';
+import { handleMessage, handleDocument, handlePhoto, handleVoice as handleVoiceMessage } from './handlers/message.handler.js';
+import { handleCallbackQuery, handleInlineQuery } from './handlers/callback.handler.js';
 
 /**
- * Glo Agent — Telegram AI Coding Assistant
+ * Glo Agent v3 — Premium Telegram AI Coding Assistant
  *
- * Premium AI bot untuk menulis, menelaah, debug, dan menjelaskan kode.
- * Powered by z-ai-web-dev-sdk
+ * Features:
+ *   Core: /code /debug /review /explain /chat
+ *   Vision: photo & image file analysis via Groq llama-4-scout
+ *   Voice: ASR via Groq Whisper (voice note → text → AI)
+ *   TTS: text-to-speech (Z.ai SDK infra)
+ *   Web: /search real-time web search (DuckDuckGo default)
+ *   Memory: long-term memory (preferences, facts)
+ *   Streaming: real-time typing for premium users
+ *   Multi-model: simple→fast model, complex→primary model
+ *   Premium tier: free limits vs unlimited premium
+ *   Inline mode: @bot query from any chat
+ *   Diagnostics: /aistatus
  */
 
 // Validate configuration
@@ -49,16 +68,25 @@ bot.use(async (ctx, next) => {
     ? `${ctx.from.id} (${ctx.from.first_name || ''} ${ctx.from.last_name || ''})`
     : 'Unknown';
 
-  console.log(`📩 [${new Date().toISOString()}] ${userInfo}: ${ctx.message?.text || ctx.callbackQuery?.data || '[non-text]'}`);
+  const msgType = ctx.inlineQuery
+    ? `inline: "${ctx.inlineQuery.query?.substring(0, 50) || ''}"`
+    : ctx.message?.text
+      ? ctx.message.text.substring(0, 80)
+      : ctx.message?.photo
+        ? '[photo]'
+        : ctx.message?.voice
+          ? '[voice]'
+          : ctx.message?.document
+            ? `[file: ${ctx.message.document.file_name || ''}]`
+            : ctx.callbackQuery?.data || '[non-text]';
+
+  console.log(`📩 [${new Date().toISOString()}] ${userInfo}: ${msgType}`);
 
   await next();
 
   const duration = Date.now() - start;
   console.log(`✅ [${duration}ms] Response sent`);
 });
-
-// Admin check middleware
-const isAdmin = (userId) => config.adminUsers.includes(userId);
 
 // ============================================
 // COMMAND HANDLERS
@@ -75,17 +103,29 @@ bot.command('chat', handleChat);
 bot.command('mode', handleMode);
 bot.command('clear', handleClear);
 bot.command('stats', handleStats);
+bot.command('mystats', handleMyStats);
+bot.command('tier', handleTier);
+bot.command('memory', handleMemory);
+bot.command('search', handleSearch);
+bot.command('image', handleImage);
+bot.command('voice', handleVoice);
+bot.command('tts', handleTTS);
 bot.command('aistatus', handleAiStatus);
 
 // ============================================
-// MESSAGE HANDLERS
+// MESSAGE HANDLERS (ordered: photo, voice, document, text)
 // ============================================
 
-// Handle document/file messages
+bot.on('photo', handlePhoto);
+bot.on('voice', handleVoiceMessage);
 bot.on('document', handleDocument);
-
-// Handle regular text messages
 bot.on('text', handleMessage);
+
+// ============================================
+// INLINE MODE (@bot query)
+// ============================================
+
+bot.on('inline_query', handleInlineQuery);
 
 // ============================================
 // CALLBACK QUERY HANDLERS
@@ -109,14 +149,15 @@ bot.catch((err, ctx) => {
 
 async function startBot() {
   try {
-    console.log('✦  Starting Glo Agent...');
+    console.log('✦  Starting Glo Agent v3...');
     console.log('✦  Initializing AI service...');
 
-    // Initialize AI service (non-blocking - bot starts even if AI init fails)
     try {
       await aiService.initialize();
       if (aiService.initialized) {
         console.log('✅ AI service initialized');
+        console.log(`   Provider: ${aiService.provider} | Model: ${aiService.model}`);
+        console.log(`   Vision: ${aiService.visionModel} | Fast: ${aiService.fastModel}`);
       } else {
         console.log('⚠️ AI service NOT initialized - AI features will not work');
         console.log('⚠️ To enable AI, set these env vars:');
@@ -129,31 +170,50 @@ async function startBot() {
       console.log('⚠️ Bot will start but AI features will not work');
     }
 
-    // Verify bot token by calling getMe
     console.log('✦  Verifying bot token...');
     const botInfo = await bot.telegram.getMe();
     console.log(`✦  Bot verified: @${botInfo.username} (ID: ${botInfo.id})`);
 
-    // Start bot with explicit polling config
-    // Handle 409 conflict errors gracefully - don't exit, just retry after delay
+    // Enable inline mode support
+    try {
+      await bot.telegram.setMyCommands([
+        { command: 'start', description: 'Welcome & menu utama' },
+        { command: 'help', description: 'Panduan lengkap' },
+        { command: 'code', description: '⚡ Generate kode' },
+        { command: 'debug', description: '🐛 Debug kode' },
+        { command: 'review', description: '🔍 Review kode' },
+        { command: 'explain', description: '📖 Jelaskan kode' },
+        { command: 'chat', description: '💬 Chat bebas' },
+        { command: 'search', description: '🌐 Web search' },
+        { command: 'image', description: '🖼️ Analisa gambar (vision)' },
+        { command: 'voice', description: '🎤 Voice input (ASR)' },
+        { command: 'tts', description: '🔊 Text-to-speech' },
+        { command: 'memory', description: '🧠 Lihat memori bot' },
+        { command: 'tier', description: '💎 Cek tier & kuota' },
+        { command: 'mystats', description: '📊 Statistik penggunaan' },
+        { command: 'clear', description: '🗑️ Hapus riwayat chat' },
+        { command: 'aistatus', description: '🔍 Cek konfigurasi AI' },
+      ]);
+      console.log('✦  Bot commands registered with Telegram');
+    } catch (cmdErr) {
+      console.warn('⚠️ Failed to register commands:', cmdErr.message);
+    }
+
     console.log('✦  Starting long polling...');
 
     const launchBot = (retryCount = 0) => {
       bot.launch({
-        allowedUpdates: ['message', 'callback_query'],
+        allowedUpdates: ['message', 'callback_query', 'inline_query'],
         dropPendingUpdates: true,
       }).catch(err => {
         const is409Conflict = err.message && err.message.includes('409');
         if (is409Conflict && retryCount < 5) {
-          // Another bot instance is still running - wait and retry
           console.warn(`⚠️ 409 Conflict (another instance running). Retrying in ${5 * (retryCount + 1)}s... [attempt ${retryCount + 1}/5]`);
           setTimeout(() => launchBot(retryCount + 1), 5000 * (retryCount + 1));
         } else {
           console.error('❌ Bot launch error:', err.message);
           if (is409Conflict) {
             console.error('❌ Multiple 409 conflicts. Another bot instance may be running elsewhere.');
-            console.error('❌ Stopping to prevent restart loop.');
-            // Don't exit - let Railway keep this container alive, just no polling
           } else {
             process.exit(1);
           }
@@ -163,38 +223,50 @@ async function startBot() {
 
     launchBot();
 
-    // Give polling a moment to establish, then print success
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     console.log('');
     console.log('✦ ═══════════════════════════════════════');
-    console.log('✦  G L O   A G E N T   —   O N L I N E   ✦');
+    console.log('✦  G L O   A G E N T   v3   —   O N L I N E');
     console.log('✦ ═══════════════════════════════════════');
     console.log('');
-    console.log(`◆ Bot Name : @${botInfo.username}`);
-    console.log(`◆ Bot ID   : ${botInfo.id}`);
+    console.log(`◆ Bot Name    : @${botInfo.username}`);
+    console.log(`◆ Bot ID      : ${botInfo.id}`);
+    console.log(`◆ AI Provider : ${aiService.provider || '(not configured)'}`);
+    console.log(`◆ AI Model    : ${aiService.model || '-'}`);
+    console.log(`◆ Vision      : ${aiService.visionModel || '-'}`);
+    console.log(`◆ Fast        : ${aiService.fastModel || '-'}`);
     console.log('');
     console.log('◆ Commands available:');
-    console.log('   /start    — Welcome message');
+    console.log('   /start    — Welcome + menu');
     console.log('   /help     — Detailed help');
     console.log('   /code     — Generate code');
     console.log('   /review   — Review code');
     console.log('   /debug    — Debug code');
     console.log('   /explain  — Explain code');
-    console.log('   /chat     — Chat mode');
+    console.log('   /chat     — Chat (streaming for premium)');
     console.log('   /mode     — Change mode');
+    console.log('   /search   — Web search');
+    console.log('   /image    — Vision/image help');
+    console.log('   /voice    — Voice ASR help');
+    console.log('   /tts      — Text-to-speech');
+    console.log('   /memory   — Long-term memory');
+    console.log('   /tier     — Premium tier & quota');
+    console.log('   /mystats  — Usage statistics');
     console.log('   /clear    — Clear history');
-    console.log('   /stats    — Bot statistics');
-    console.log('   /aistatus — Cek konfigurasi AI & test connection');
+    console.log('   /aistatus — AI diagnostics');
+    console.log('');
+    console.log('◆ Media handlers: photo, voice, document (auto-detected)');
+    console.log('◆ Inline mode: @' + botInfo.username + ' <query>');
     console.log('');
     console.log('✦  Press Ctrl+C to stop');
     console.log('');
 
-    // Keep-alive heartbeat
+    // Heartbeat
     setInterval(() => {
       const mem = process.memoryUsage();
       const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
-      console.log(`✦ Heartbeat | RSS: ${mb(mem.rss)}MB | Active chats: ${historyService.getActiveCount()}`);
+      console.log(`✦ Heartbeat | RSS: ${mb(mem.rss)}MB | Chats: ${historyService.getActiveCount()} | Premium users: ${premiumService.getStats ? 'active' : 'N/A'}`);
     }, 60000);
 
   } catch (error) {
@@ -204,16 +276,14 @@ async function startBot() {
   }
 }
 
-// Process-level error handlers to prevent silent crashes
+// Process-level error handlers
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught Exception:', err.message);
   console.error(err.stack);
-  // Don't exit - try to keep the bot alive
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 Unhandled Rejection:', reason);
-  // Don't exit - try to keep the bot alive
 });
 
 // Graceful shutdown

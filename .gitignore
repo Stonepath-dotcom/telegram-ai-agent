@@ -2,3 +2,8 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Memory & usage data (per-user preferences, daily quota counters)
+data/
+.z-ai-config
+.z-ai-config.tmp
