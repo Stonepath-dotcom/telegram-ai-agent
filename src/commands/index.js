@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import aiService from '../services/ai.service.js';
 import historyService from '../services/history.service.js';
 import rateLimitService from '../services/rate-limit.service.js';
@@ -17,6 +20,41 @@ import {
   backHomeKeyboard,
 } from '../utils/keyboards.js';
 
+// Resolve banner asset path (works both in dev and in Railway container /app)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// src/commands/ -> ../../docs/banners/
+const BANNER_DIR = path.resolve(__dirname, '../../docs/banners');
+const START_BANNER = path.join(BANNER_DIR, 'glo-agent-hero-dark.png');
+const HELP_BANNER = path.join(BANNER_DIR, 'glo-agent-features-grid.png');
+
+function fileExists(p) {
+  try {
+    return fs.existsSync(p) && fs.statSync(p).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+// Send a banner photo (with optional caption) — silent no-op if file missing.
+// Returns true on success, false on failure.
+async function sendBanner(ctx, filePath, caption) {
+  if (!fileExists(filePath)) return false;
+  try {
+    if (caption) {
+      await ctx.replyWithPhoto(
+        { source: fs.createReadStream(filePath) },
+        { caption, parse_mode: 'Markdown' }
+      );
+    } else {
+      await ctx.replyWithPhoto({ source: fs.createReadStream(filePath) });
+    }
+    return true;
+  } catch (e) {
+    console.warn('Banner send failed:', e?.message);
+    return false;
+  }
+}
+
 /**
  * Glo Agent — Command Handlers v3
  *
@@ -27,9 +65,9 @@ import {
  */
 
 // ============================================
-// /START — Premium onboarding
+// /START — Premium onboarding (banner + welcome)
 // ============================================
-export function handleStart(ctx) {
+export async function handleStart(ctx) {
   const userName = ctx.from.first_name || 'Friend';
   const isPremium = premiumService.isPremium(ctx.from.id);
 
@@ -37,10 +75,15 @@ export function handleStart(ctx) {
   memoryService.savePreference(ctx.from.id, 'name', userName);
   memoryService.savePreference(ctx.from.id, 'firstSeen', Date.now());
 
-  const welcomeMessage = `
-✨ *G L O   A G E N T*  ${isPremium ? '💎' : '🆓'}
-━━━━━━━━━━━━━━━━━━━━
+  // 1) Send the hero banner as a photo (silent fallback if missing).
+  //    Telegram captions are limited to 1024 chars — keep this short.
+  const bannerCaption = isPremium
+    ? `💎 *G L O   A G E N T*  ·  Premium\nVision · Voice · Code Sandbox · Web Search`
+    : `✨ *G L O   A G E N T*\nVision · Voice · Code Sandbox · Web Search`;
+  await sendBanner(ctx, START_BANNER, bannerCaption);
 
+  // 2) Full welcome text + main menu keyboard as a follow-up message.
+  const welcomeMessage = `
 Halo, *${userName}* 👋
 
 Saya *Glo* — partner coding premium kamu. Saya bisa nulis, telaah, debug, dan jelaskan kode dalam bahasa apapun. Plus sekarang saya punya mata 👁️, telinga 🎤, dan akses internet 🌐.
@@ -58,7 +101,7 @@ Pilih fitur di bawah 👇
 `;
 
   try {
-    return ctx.replyWithMarkdown(welcomeMessage, mainMenuKeyboard(isPremium));
+    return await ctx.replyWithMarkdown(welcomeMessage, mainMenuKeyboard(isPremium));
   } catch (e) {
     return ctx.reply(welcomeMessage.replace(/[*_`~]/g, ''), mainMenuKeyboard(isPremium));
   }
@@ -67,7 +110,10 @@ Pilih fitur di bawah 👇
 // ============================================
 // /HELP
 // ============================================
-export function handleHelp(ctx) {
+export async function handleHelp(ctx) {
+  // Optional: send features-grid banner first
+  await sendBanner(ctx, HELP_BANNER);
+
   const helpMessage = `
 ✨ *Panduan Glo Agent*
 ━━━━━━━━━━━━━━━━━━━━
