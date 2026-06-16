@@ -1,27 +1,124 @@
-import ZAI from 'z-ai-web-dev-sdk';
+/**
+ * AI Service - Multi-provider support for OpenAI-compatible APIs
+ *
+ * Supports:
+ * - Z.ai SDK (for local/internal use)
+ * - OpenAI-compatible APIs: Groq, OpenAI, OpenRouter, Together AI, etc.
+ *
+ * Environment variables:
+ * - AI_PROVIDER: "zai" | "openai" | "groq" | "openrouter" | "together" | "custom" (default: auto-detect)
+ * - AI_API_KEY: API key for the provider
+ * - AI_BASE_URL: Base URL for custom provider (e.g., https://api.groq.com/openai/v1)
+ * - AI_MODEL: Model name (e.g., llama-3.3-70b-versatile for Groq)
+ *
+ * For Z.ai SDK (local/internal only):
+ * - ZAI_BASE_URL, ZAI_API_KEY, ZAI_TOKEN, ZAI_CHAT_ID, ZAI_USER_ID
+ */
+
 import config from '../../config/default.js';
 
-/**
- * AI Service - Handles all AI interactions using z-ai-web-dev-sdk
- */
+// Provider presets
+const PROVIDER_PRESETS = {
+  groq: {
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+  },
+  openrouter: {
+    baseUrl: 'https://openrouter.ai/api/v1',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+  },
+  together: {
+    baseUrl: 'https://api.together.xyz/v1',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+  },
+};
+
 class AIService {
   constructor() {
+    this.provider = null;
+    this.baseUrl = null;
+    this.apiKey = null;
+    this.model = null;
     this.zai = null;
     this.initialized = false;
   }
 
   /**
-   * Initialize the ZAI SDK
-   * Creates .z-ai-config from env vars if needed (for Railway/production)
+   * Initialize the AI service
+   * Auto-detects provider based on environment variables
    */
   async initialize() {
     if (this.initialized) return;
+
     try {
+      const provider = (process.env.AI_PROVIDER || '').toLowerCase();
+
+      // Determine provider and config
+      if (provider && provider !== 'zai' && PROVIDER_PRESETS[provider]) {
+        // Use preset provider
+        const preset = PROVIDER_PRESETS[provider];
+        this.provider = provider;
+        this.baseUrl = process.env.AI_BASE_URL || preset.baseUrl;
+        this.apiKey = process.env.AI_API_KEY;
+        this.model = process.env.AI_MODEL || preset.defaultModel;
+
+        if (!this.apiKey) {
+          console.error(`⚠️ AI_PROVIDER=${provider} but AI_API_KEY is not set!`);
+          console.error(`⚠️ Get your API key from ${this._getProviderKeyUrl(provider)}`);
+          this.initialized = false;
+          return;
+        }
+
+        console.log(`✅ AI Provider: ${provider}`);
+        console.log(`✅ AI Base URL: ${this.baseUrl}`);
+        console.log(`✅ AI Model: ${this.model}`);
+        this.initialized = true;
+        return;
+      }
+
+      if (provider === 'custom' || (process.env.AI_BASE_URL && process.env.AI_API_KEY)) {
+        // Custom OpenAI-compatible provider
+        this.provider = 'custom';
+        this.baseUrl = process.env.AI_BASE_URL;
+        this.apiKey = process.env.AI_API_KEY;
+        this.model = process.env.AI_MODEL || 'gpt-3.5-turbo';
+
+        if (!this.apiKey) {
+          console.error('⚠️ AI_PROVIDER=custom but AI_API_KEY is not set!');
+          this.initialized = false;
+          return;
+        }
+
+        console.log(`✅ AI Provider: custom (${this.baseUrl})`);
+        console.log(`✅ AI Model: ${this.model}`);
+        this.initialized = true;
+        return;
+      }
+
+      // Fall back to Z.ai SDK (only works inside Z.ai infrastructure)
+      console.log('📋 No AI_PROVIDER set. Trying Z.ai SDK (works only inside Z.ai infra)...');
+      await this._initializeZAI();
+    } catch (error) {
+      console.error('⚠️ Failed to initialize AI service:', error.message);
+      console.error('⚠️ Set AI_PROVIDER, AI_API_KEY env vars for AI features.');
+      this.initialized = false;
+    }
+  }
+
+  /**
+   * Initialize Z.ai SDK (local/internal only)
+   */
+  async _initializeZAI() {
+    try {
+      const ZAI = (await import('z-ai-web-dev-sdk')).default;
       const fs = await import('fs');
       const path = await import('path');
       const os = await import('os');
 
-      // Check if .z-ai-config exists in project dir or home dir
       const configPaths = [
         path.join(process.cwd(), '.z-ai-config'),
         path.join(os.homedir(), '.z-ai-config'),
@@ -36,77 +133,103 @@ class AIService {
             console.log(`📋 Found ZAI config at: ${p}`);
             break;
           }
-        } catch (e) {
-          // Permission denied or other FS error, skip
-        }
+        } catch (e) { /* skip */ }
       }
 
-      // If no config file found, create one from env vars
       if (!configExists) {
         const zaiBaseUrl = process.env.ZAI_BASE_URL;
         const zaiApiKey = process.env.ZAI_API_KEY;
-        const zaiToken = process.env.ZAI_TOKEN;
 
         if (zaiBaseUrl && zaiApiKey) {
-          console.log('📋 Creating .z-ai-config from environment variables...');
           const configData = JSON.stringify({
             baseUrl: zaiBaseUrl,
             apiKey: zaiApiKey,
-            ...(zaiToken ? { token: zaiToken } : {}),
+            ...(process.env.ZAI_TOKEN ? { token: process.env.ZAI_TOKEN } : {}),
             chatId: process.env.ZAI_CHAT_ID || '',
             userId: process.env.ZAI_USER_ID || '',
           }, null, 2);
 
-          // Write to project directory (Railway container is writable)
           try {
-            const configPath = path.join(process.cwd(), '.z-ai-config');
-            fs.writeFileSync(configPath, configData);
-            console.log(`✅ Created config at: ${configPath}`);
-          } catch (writeErr) {
-            // If project dir is read-only, try /tmp
-            const tmpPath = '/tmp/.z-ai-config';
-            fs.writeFileSync(tmpPath, configData);
-            process.env.ZAI_CONFIG_PATH = tmpPath;
-            console.log(`✅ Created config at: ${tmpPath}`);
+            fs.writeFileSync(path.join(process.cwd(), '.z-ai-config'), configData);
+          } catch (e) {
+            fs.writeFileSync('/tmp/.z-ai-config', configData);
           }
+          console.log('✅ Created ZAI config from env vars');
         } else {
-          console.error('⚠️ No ZAI config file found and no ZAI_BASE_URL/ZAI_API_KEY env vars set!');
-          console.error('⚠️ Bot will start but AI features will not work until config is provided.');
+          console.error('⚠️ No ZAI config or AI_PROVIDER env vars set!');
           this.initialized = false;
-          return; // Don't crash - bot can still respond to non-AI commands
+          return;
         }
       }
 
-      // Initialize SDK (it will read the config file)
       this.zai = await ZAI.create();
+      this.provider = 'zai';
       this.initialized = true;
-      console.log('✅ ZAI SDK initialized successfully');
+      console.log('✅ Z.ai SDK initialized');
     } catch (error) {
-      console.error('⚠️ Failed to initialize ZAI SDK:', error.message);
-      console.error('⚠️ Bot will start but AI features will not work.');
+      console.error('⚠️ ZAI SDK init failed:', error.message);
       this.initialized = false;
-      // Don't throw - allow bot to start without AI
     }
   }
 
-  /**
-   * Ensure AI is initialized before use
-   */
+  _getProviderKeyUrl(provider) {
+    const urls = {
+      groq: 'https://console.groq.com/keys',
+      openai: 'https://platform.openai.com/api-keys',
+      openrouter: 'https://openrouter.ai/keys',
+      together: 'https://api.together.xyz/settings/api-keys',
+    };
+    return urls[provider] || 'provider docs';
+  }
+
   async ensureInitialized() {
     if (!this.initialized) {
       await this.initialize();
     }
     if (!this.initialized) {
-      throw new Error('AI service is not available. Please configure ZAI_BASE_URL and ZAI_API_KEY environment variables.');
+      throw new Error(
+        'AI service is not configured. Set AI_PROVIDER=groq and AI_API_KEY=your_key ' +
+        '(get free key at https://console.groq.com/keys)'
+      );
     }
   }
 
   /**
+   * Call OpenAI-compatible chat completions API
+   */
+  async _callOpenAICompatible(messages, options = {}) {
+    const url = `${this.baseUrl}/chat/completions`;
+    const body = {
+      model: options.model || this.model,
+      messages,
+      temperature: options.temperature ?? config.ai.temperature,
+      max_tokens: options.max_tokens ?? config.ai.maxTokens,
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+        ...(this.provider === 'openrouter' ? {
+          'HTTP-Referer': 'https://github.com/Stonepath-dotcom/telegram-ai-agent',
+          'X-Title': 'Telegram AI Agent Bot',
+        } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API ${response.status}: ${errorText.substring(0, 200)}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || 'Maaf, tidak ada respons dari AI.';
+  }
+
+  /**
    * General chat completion
-   * @param {string} userMessage - The user's message
-   * @param {Array} history - Conversation history
-   * @param {string} mode - Chat mode (normal, code, debug, review, explain)
-   * @returns {string} AI response
    */
   async chat(userMessage, history = [], mode = 'normal') {
     await this.ensureInitialized();
@@ -115,13 +238,15 @@ class AIService {
     const messages = this._buildMessages(systemPrompt, history, userMessage);
 
     try {
-      const completion = await this.zai.chat.completions.create({
-        messages,
-        temperature: config.ai.temperature,
-        max_tokens: config.ai.maxTokens,
-      });
-
-      return completion.choices[0]?.message?.content || 'Maaf, saya tidak bisa memproses permintaan Anda.';
+      if (this.provider === 'zai') {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: config.ai.temperature,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Maaf, saya tidak bisa memproses permintaan Anda.';
+      }
+      return await this._callOpenAICompatible(messages);
     } catch (error) {
       console.error('AI Chat Error:', error.message);
       throw new Error(`AI Error: ${error.message}`);
@@ -130,10 +255,6 @@ class AIService {
 
   /**
    * Generate code based on description
-   * @param {string} description - What code to generate
-   * @param {string} language - Programming language (optional)
-   * @param {Array} history - Conversation history
-   * @returns {string} Generated code with explanation
    */
   async generateCode(description, language = '', history = []) {
     await this.ensureInitialized();
@@ -152,13 +273,15 @@ class AIService {
     const messages = this._buildMessages(systemPrompt, history, `Write code${langHint} for: ${description}`);
 
     try {
-      const completion = await this.zai.chat.completions.create({
-        messages,
-        temperature: 0.4, // Lower temperature for code generation
-        max_tokens: config.ai.maxTokens,
-      });
-
-      return completion.choices[0]?.message?.content || 'Gagal generate kode.';
+      if (this.provider === 'zai') {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: 0.4,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Gagal generate kode.';
+      }
+      return await this._callOpenAICompatible(messages, { temperature: 0.4 });
     } catch (error) {
       console.error('Code Generation Error:', error.message);
       throw new Error(`Code Generation Error: ${error.message}`);
@@ -167,10 +290,6 @@ class AIService {
 
   /**
    * Debug code - find and fix bugs
-   * @param {string} code - Code to debug
-   * @param {string} errorMsg - Error message (optional)
-   * @param {Array} history - Conversation history
-   * @returns {string} Debug analysis and fix
    */
   async debugCode(code, errorMsg = '', history = []) {
     await this.ensureInitialized();
@@ -192,13 +311,15 @@ class AIService {
     const messages = this._buildMessages(systemPrompt, history, userMsg);
 
     try {
-      const completion = await this.zai.chat.completions.create({
-        messages,
-        temperature: 0.3, // Very low temperature for debugging
-        max_tokens: config.ai.maxTokens,
-      });
-
-      return completion.choices[0]?.message?.content || 'Gagal menganalisis kode.';
+      if (this.provider === 'zai') {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: 0.3,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Gagal menganalisis kode.';
+      }
+      return await this._callOpenAICompatible(messages, { temperature: 0.3 });
     } catch (error) {
       console.error('Debug Error:', error.message);
       throw new Error(`Debug Error: ${error.message}`);
@@ -207,9 +328,6 @@ class AIService {
 
   /**
    * Review code - analyze quality, security, performance
-   * @param {string} code - Code to review
-   * @param {Array} history - Conversation history
-   * @returns {string} Code review
    */
   async reviewCode(code, history = []) {
     await this.ensureInitialized();
@@ -233,13 +351,15 @@ Format your review with:
     const messages = this._buildMessages(systemPrompt, history, `Review this code:\n\`\`\`\n${code}\n\`\`\``);
 
     try {
-      const completion = await this.zai.chat.completions.create({
-        messages,
-        temperature: 0.4,
-        max_tokens: config.ai.maxTokens,
-      });
-
-      return completion.choices[0]?.message?.content || 'Gagal mereview kode.';
+      if (this.provider === 'zai') {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: 0.4,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Gagal mereview kode.';
+      }
+      return await this._callOpenAICompatible(messages, { temperature: 0.4 });
     } catch (error) {
       console.error('Review Error:', error.message);
       throw new Error(`Review Error: ${error.message}`);
@@ -248,9 +368,6 @@ Format your review with:
 
   /**
    * Explain code - break down complex logic
-   * @param {string} code - Code to explain
-   * @param {Array} history - Conversation history
-   * @returns {string} Code explanation
    */
   async explainCode(code, history = []) {
     await this.ensureInitialized();
@@ -268,44 +385,30 @@ Format your review with:
     const messages = this._buildMessages(systemPrompt, history, `Explain this code:\n\`\`\`\n${code}\n\`\`\``);
 
     try {
-      const completion = await this.zai.chat.completions.create({
-        messages,
-        temperature: 0.5,
-        max_tokens: config.ai.maxTokens,
-      });
-
-      return completion.choices[0]?.message?.content || 'Gagal menjelaskan kode.';
+      if (this.provider === 'zai') {
+        const completion = await this.zai.chat.completions.create({
+          messages,
+          temperature: 0.5,
+          max_tokens: config.ai.maxTokens,
+        });
+        return completion.choices[0]?.message?.content || 'Gagal menjelaskan kode.';
+      }
+      return await this._callOpenAICompatible(messages, { temperature: 0.5 });
     } catch (error) {
       console.error('Explain Error:', error.message);
       throw new Error(`Explain Error: ${error.message}`);
     }
   }
 
-  /**
-   * Build messages array for the AI
-   */
   _buildMessages(systemPrompt, history, userMessage) {
-    const messages = [
-      { role: 'system', content: systemPrompt },
-    ];
-
-    // Add conversation history
+    const messages = [{ role: 'system', content: systemPrompt }];
     for (const msg of history) {
-      messages.push({
-        role: msg.role,
-        content: msg.content,
-      });
+      messages.push({ role: msg.role, content: msg.content });
     }
-
-    // Add current user message
     messages.push({ role: 'user', content: userMessage });
-
     return messages;
   }
 
-  /**
-   * Get system prompt based on mode
-   */
   _getSystemPrompt(mode) {
     const modePrompts = {
       normal: config.ai.systemPrompt,
@@ -314,11 +417,9 @@ Format your review with:
       review: `You are a code review specialist. Focus on code quality, security, and performance. Provide actionable feedback. Respond in the same language the user uses.`,
       explain: `You are a code explanation specialist. Break down code into simple, understandable parts. Use analogies when helpful. Respond in the same language the user uses.`,
     };
-
     return modePrompts[mode] || modePrompts.normal;
   }
 }
 
-// Singleton instance
 const aiService = new AIService();
 export default aiService;
